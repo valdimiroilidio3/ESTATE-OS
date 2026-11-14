@@ -49,11 +49,8 @@ function parse() {
         "APP_SECRET em falta ou demasiado curto (mínimo 32 caracteres) em produção. Gere com: openssl rand -hex 32",
       );
     }
-    if (!databaseUrl) {
-      throw new Error(
-        "DATABASE_URL em falta. Configure uma base de dados PostgreSQL (Neon, Supabase, Vercel Postgres) antes de arrancar em produção.",
-      );
-    }
+    // A missing DATABASE_URL is not a crash: the app renders a setup screen that
+    // explains exactly what to configure. Only the secret is a hard failure.
     if (!env.NEXT_PUBLIC_APP_URL) {
       console.warn(
         "[env] NEXT_PUBLIC_APP_URL não definido — use-o para links de partilha e canonical correctos (ex.: https://app.exemplo.pt).",

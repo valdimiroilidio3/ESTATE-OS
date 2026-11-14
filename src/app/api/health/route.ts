@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { one } from "@/server/db";
+import { DatabaseNotConfiguredError, one } from "@/server/db";
 import { config } from "@/server/env";
 
 export const runtime = "nodejs";
@@ -28,11 +28,19 @@ export async function GET() {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
+    const message = error instanceof Error ? error.message : "unknown";
     return NextResponse.json(
       {
         status: "error",
-        database: { reachable: false },
-        error: error instanceof Error ? error.message : "unknown",
+        database: {
+          reachable: false,
+          configured: !(error instanceof DatabaseNotConfiguredError),
+        },
+        error: message,
+        hint:
+          error instanceof DatabaseNotConfiguredError
+            ? "Defina DATABASE_URL e execute `npm run db:init`."
+            : "Verifique a ligação PostgreSQL e se o esquema foi aplicado.",
         timestamp: new Date().toISOString(),
       },
       { status: 503 },
