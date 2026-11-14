@@ -18,6 +18,9 @@ export async function GET(req: Request) {
   const detailed = authorisedDetail(req);
   try {
     const cfg = config();
+    // Always probe the database, even when details are hidden: a liveness
+    // endpoint that reports "ok" without touching the database is a lie.
+    await one<{ ok: number }>(`SELECT 1 AS ok`);
     const count = detailed ? (await one<{ n: number }>(`SELECT count(*) AS n FROM organizations`))?.n ?? 0 : null;
     return NextResponse.json({
       status: "ok",
