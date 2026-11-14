@@ -77,6 +77,12 @@ npm run db:init                     # cria o esquema e os planos, sem dados fict
 npm run dev                         # http://localhost:3000
 ```
 
+`npm run db:init` é opcional em arranque: o esquema (`schema.sql`) é aplicado
+automaticamente no primeiro pedido a uma base vazia, sob um *advisory lock* do PostgreSQL, para
+que um deploy novo fique a funcionar sem passos manuais. `AUTO_MIGRATE=0` desliga esse
+comportamento e exige `db:init` explícito. O esquema é só aditivo (`IF NOT EXISTS`): nunca
+apaga dados.
+
 `npm run db:init` é idempotente e **não insere imóveis, leads ou utilizadores**. A instância
 fica pronta mas vazia. A primeira conta criada em `/signup` define a primeira organização:
 essa conta recebe a função `owner`, o plano `starter` e uma subscrição com estado
@@ -174,9 +180,10 @@ A instância é durável tanto num servidor único como em plataformas serverles
 | Jobs de IA | Worker in-process despertado pelo pedido | Não exige cron, mas um cron a `/api/health` mantém a fila a andar |
 
 **Vercel:** importar o repositório, definir `DATABASE_URL`, `APP_SECRET` (≥32) e
-`NEXT_PUBLIC_APP_URL`, correr `npm run db:init` uma vez contra a base de produção e abrir
-`/signup` para criar a primeira organização. `vercel.json` já fixa o comando de build e a
-região.
+`NEXT_PUBLIC_APP_URL` e abrir `/signup` para criar a primeira organização — o esquema é criado
+no primeiro pedido. `vercel.json` já fixa o comando de build e a região. Sem `DATABASE_URL` a
+aplicação não rebenta: apresenta um ecrã único com os três passos de instalação, e
+`/api/health` devolve `503` com `database.configured: false`.
 
 **Servidor único / contentor:** igual, com `STORAGE_DRIVER=fs` se preferir guardar os
 ficheiros em disco e montar `storage/` como volume.

@@ -112,18 +112,21 @@ function assertParams(sql: string, params: unknown[]): void {
 
 export async function one<T = Row>(sql: string, params: unknown[] = []): Promise<T | undefined> {
   assertParams(sql, params);
+  await ensureSchemaOnce();
   const result = await pool().query(q(sql), params as any[]);
   return result.rows[0] as T | undefined;
 }
 
 export async function many<T = Row>(sql: string, params: unknown[] = []): Promise<T[]> {
   assertParams(sql, params);
+  await ensureSchemaOnce();
   const result = await pool().query(q(sql), params as any[]);
   return result.rows as T[];
 }
 
 export async function run(sql: string, params: unknown[] = []): Promise<{ changes: number }> {
   assertParams(sql, params);
+  await ensureSchemaOnce();
   const result = await pool().query(q(sql), params as any[]);
   return { changes: result.rowCount ?? 0 };
 }
@@ -156,6 +159,47 @@ export async function ensureSchema(): Promise<void> {
   const file = path.join(process.cwd(), "src", "server", "schema.sql");
   const sql = await fs.readFile(file, "utf8");
   await exec(sql);
+}
+
+const globalForSchema = globalThis as unknown as { __estateSchemaReady?: Promise<void> };
+
+async function schemaPresent(): Promise<boolean> {
+  const result = await pool().query("select to_regclass('public.organizations') as table_name");
+  return Boolean(result.rows[0]?.table_name);
+}
+
+/**
+ * Applies `schema.sql` on first use, so a brand-new deployment boots straight
+ * into a working product instead of failing on a missing table.
+ *
+ * Only additive statements run, one connection at a time (PostgreSQL advisory
+ * lock), and the result is cached per process. Set `AUTO_MIGRATE=0` to require
+ * an explicit `npm run db:init` before the app will touch the database.
+ */
+export function ensureSchemaOnce(): Promise<void> {
+  if (process.env.AUTO_MIGRATE === "0") return Promise.resolve();
+  if (!globalForSchema.__estateSchemaReady) {
+    globalForSchema.__estateSchemaReady = (async () => {
+      if (await schemaPresent()) return;
+      const client = await pool().connect();
+      try {
+        await client.query("select pg_advisory_lock(914527381)");
+        if (!(await schemaPresent())) {
+          console.info("[db] esquema em falta — a aplicar schema.sql");
+          await ensureSchema();
+          console.info("[db] esquema aplicado");
+        }
+      } catch (error) {
+        // Let the next request retry instead of caching a failure forever.
+        globalForSchema.__estateSchemaReady = undefined;
+        throw error;
+      } finally {
+        await client.query("select pg_advisory_unlock(914527381)").catch(() => undefined);
+        client.release();
+      }
+    })();
+  }
+  return globalForSchema.__estateSchemaReady;
 }
 
 export function parseJson<T>(value: unknown, fallback: T): T {
