@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { many, one, run, uid, now, type Row } from "../db";
 import { ApiError } from "../http";
-import { buildKnowledge, mediaInventory, factsDigest } from "./knowledge";
+import { buildKnowledge, mediaInventory, factsDigest, type KnowledgeBase } from "./knowledge";
 import {
   generateListing,
   generateAudienceVersions,
@@ -26,7 +26,7 @@ const modelListingSchema = z.object({
   ctas: z.array(z.string()).default([]),
 });
 
-async function tryModelListing(kb: ReturnType<typeof buildKnowledge>, locale: "pt" | "en") {
+async function tryModelListing(kb: KnowledgeBase, locale: "pt" | "en") {
   const info = providerInfo();
   if (info.mode !== "model" || !info.configured) return null;
   const system = `You are a senior real estate copywriter for a luxury property agency. Write in ${
@@ -64,7 +64,7 @@ async function tryModelListing(kb: ReturnType<typeof buildKnowledge>, locale: "p
   };
 }
 
-export function saveContent(input: {
+export async function saveContent(input: {
   orgId: string;
   propertyId: string;
   piece: GeneratedPiece;
@@ -73,13 +73,13 @@ export function saveContent(input: {
 }) {
   const { orgId, propertyId, piece, createdBy, provider } = input;
   // Previous drafts of the same kind/locale/variant move to archive (version history).
-  run(
+  await run(
     `UPDATE property_content SET status = 'archived', updated_at = ?
      WHERE org_id = ? AND property_id = ? AND kind = ? AND locale = ? AND variant = ? AND status = 'draft'`,
     [now(), orgId, propertyId, piece.kind, piece.locale, piece.variant],
   );
   const id = uid();
-  run(
+  await run(
     `INSERT INTO property_content (id, org_id, property_id, kind, locale, variant, title, body, payload, provider,
       status, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
@@ -99,8 +99,8 @@ export function saveContent(input: {
       now(),
     ],
   );
-  refreshCompletion(propertyId, orgId);
-  return mapContent(one<Row>(`SELECT * FROM property_content WHERE id = ?`, [id])!);
+  await refreshCompletion(propertyId, orgId);
+  return mapContent((await one<Row>(`SELECT * FROM property_content WHERE id = ?`, [id]))!);
 }
 
 export async function produceListing(
@@ -109,7 +109,7 @@ export async function produceListing(
   createdBy: string,
   locale: "pt" | "en" = "pt",
 ) {
-  const kb = buildKnowledge(orgId, propertyId);
+  const kb = await buildKnowledge(orgId, propertyId);
   let provider = "local-rules";
   let piece: GeneratedPiece;
   try {
@@ -117,7 +117,7 @@ export async function produceListing(
     if (modelled) {
       piece = modelled.piece;
       provider = modelled.provider;
-      run(
+      await run(
         `INSERT INTO ai_usage (id, org_id, property_id, provider, operation, prompt_tokens, completion_tokens, latency_ms, status, created_at)
          VALUES (?,?,?,?,?,?,?,?,?,?)`,
         [
@@ -142,33 +142,36 @@ export async function produceListing(
     piece = generateListing(kb, locale);
     provider = "local-rules (fallback)";
   }
-  return { content: saveContent({ orgId, propertyId, piece, createdBy, provider }), provider };
+  return { content: await saveContent({ orgId, propertyId, piece, createdBy, provider }), provider };
 }
 
-export function produceMultilingual(orgId: string, propertyId: string, createdBy: string) {
-  const kb = buildKnowledge(orgId, propertyId);
-  const created = (["pt", "en"] as const).map((locale) =>
-    saveContent({
-      orgId,
-      propertyId,
-      piece: generateListing(kb, locale),
-      createdBy,
-      provider: "local-rules",
-    }),
-  );
-  return created;
-}
-
-export function produceAudience(orgId: string, propertyId: string, createdBy: string) {
-  const kb = buildKnowledge(orgId, propertyId);
-  return generateAudienceVersions(kb).map((piece) =>
-    saveContent({ orgId, propertyId, piece, createdBy, provider: "local-rules" }),
+export async function produceMultilingual(orgId: string, propertyId: string, createdBy: string) {
+  const kb = await buildKnowledge(orgId, propertyId);
+  return Promise.all(
+    (["pt", "en"] as const).map((locale) =>
+      saveContent({
+        orgId,
+        propertyId,
+        piece: generateListing(kb, locale),
+        createdBy,
+        provider: "local-rules",
+      }),
+    ),
   );
 }
 
-export function produceCampaign(orgId: string, propertyId: string, createdBy: string, locale: "pt" | "en" = "pt") {
-  const kb = buildKnowledge(orgId, propertyId);
-  return saveContent({
+export async function produceAudience(orgId: string, propertyId: string, createdBy: string) {
+  const kb = await buildKnowledge(orgId, propertyId);
+  return Promise.all(
+    generateAudienceVersions(kb).map((piece) =>
+      saveContent({ orgId, propertyId, piece, createdBy, provider: "local-rules" }),
+    ),
+  );
+}
+
+export async function produceCampaign(orgId: string, propertyId: string, createdBy: string, locale: "pt" | "en" = "pt") {
+  const kb = await buildKnowledge(orgId, propertyId);
+  return await saveContent({
     orgId,
     propertyId,
     piece: generateCampaign(kb, locale),
@@ -177,9 +180,9 @@ export function produceCampaign(orgId: string, propertyId: string, createdBy: st
   });
 }
 
-export function produceMediaBrief(orgId: string, propertyId: string, createdBy: string, locale: "pt" | "en" = "pt") {
-  const kb = buildKnowledge(orgId, propertyId);
-  return saveContent({
+export async function produceMediaBrief(orgId: string, propertyId: string, createdBy: string, locale: "pt" | "en" = "pt") {
+  const kb = await buildKnowledge(orgId, propertyId);
+  return await saveContent({
     orgId,
     propertyId,
     piece: generateMediaBrief(kb, locale),
@@ -188,9 +191,9 @@ export function produceMediaBrief(orgId: string, propertyId: string, createdBy: 
   });
 }
 
-export function verificationReport(orgId: string, propertyId: string) {
-  const kb = buildKnowledge(orgId, propertyId);
-  const media = mediaInventory(orgId, propertyId);
+export async function verificationReport(orgId: string, propertyId: string) {
+  const kb = await buildKnowledge(orgId, propertyId);
+  const media = await mediaInventory(orgId, propertyId);
   const report = validateProperty(kb, media);
   return {
     ...report,
@@ -201,20 +204,20 @@ export function verificationReport(orgId: string, propertyId: string) {
   };
 }
 
-export function listContent(orgId: string, propertyId: string): ContentRecord[] {
-  return many<Row>(
+export async function listContent(orgId: string, propertyId: string): Promise<ContentRecord[] >{
+  return (await many<Row>(
     `SELECT * FROM property_content WHERE org_id = ? AND property_id = ? ORDER BY updated_at DESC`,
     [orgId, propertyId],
-  ).map(mapContent);
+  )).map(mapContent);
 }
 
-export function updateContent(
+export async function updateContent(
   orgId: string,
   id: string,
   patch: { title?: string | null; body?: string | null; payload?: Record<string, unknown>; status?: "draft" | "approved" | "archived" },
   actorId: string,
 ) {
-  const row = one<Row>(`SELECT * FROM property_content WHERE id = ? AND org_id = ?`, [id, orgId]);
+  const row = await one<Row>(`SELECT * FROM property_content WHERE id = ? AND org_id = ?`, [id, orgId]);
   if (!row) throw new ApiError("Conteúdo inexistente.", 404, "not_found");
   const set: Record<string, unknown> = { updated_at: now() };
   if (patch.title !== undefined) set.title = patch.title;
@@ -232,23 +235,23 @@ export function updateContent(
     }
   }
   const keys = Object.keys(set);
-  run(
+  await run(
     `UPDATE property_content SET ${keys.map((k) => `${k} = ?`).join(", ")} WHERE id = ? AND org_id = ?`,
     [...keys.map((k) => set[k]), id, orgId],
   );
-  refreshCompletion(row.property_id, orgId);
-  return mapContent(one<Row>(`SELECT * FROM property_content WHERE id = ?`, [id])!);
+  await refreshCompletion(row.property_id, orgId);
+  return mapContent((await one<Row>(`SELECT * FROM property_content WHERE id = ?`, [id]))!);
 }
 
-export function deleteContent(orgId: string, id: string) {
-  const row = one<Row>(`SELECT * FROM property_content WHERE id = ? AND org_id = ?`, [id, orgId]);
+export async function deleteContent(orgId: string, id: string) {
+  const row = await one<Row>(`SELECT * FROM property_content WHERE id = ? AND org_id = ?`, [id, orgId]);
   if (!row) throw new ApiError("Conteúdo inexistente.", 404, "not_found");
-  run(`DELETE FROM property_content WHERE id = ? AND org_id = ?`, [id, orgId]);
-  refreshCompletion(row.property_id, orgId);
+  await run(`DELETE FROM property_content WHERE id = ? AND org_id = ?`, [id, orgId]);
+  await refreshCompletion(row.property_id, orgId);
 }
 
-export function latestContent(orgId: string, propertyId: string, kind: string, locale = "pt") {
-  return one<Row>(
+export async function latestContent(orgId: string, propertyId: string, kind: string, locale = "pt") {
+  return await one<Row>(
     `SELECT * FROM property_content WHERE org_id = ? AND property_id = ? AND kind = ? AND locale = ?
      ORDER BY CASE status WHEN 'approved' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END, updated_at DESC LIMIT 1`,
     [orgId, propertyId, kind, locale],

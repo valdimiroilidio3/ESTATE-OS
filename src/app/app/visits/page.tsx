@@ -11,10 +11,10 @@ export const metadata: Metadata = { title: "Visits" };
 
 export default async function VisitsPage() {
   const session = await requireSessionPage();
-  const visits = listVisits(session.org.id);
-  const properties = listProperties(session.org.id, { limit: 100 }).items;
-  const leads = listLeads(session.org.id, { limit: 200 });
-  const members = listMembers(session.org.id);
+  const visits = await listVisits(session.org.id);
+  const properties = (await listProperties(session.org.id, { limit: 100 })).items;
+  const leads = await listLeads(session.org.id, { limit: 200 });
+  const members = await listMembers(session.org.id);
 
   const counts = visits.reduce<Record<string, number>>((acc, visit) => {
     acc[visit.status] = (acc[visit.status] ?? 0) + 1;

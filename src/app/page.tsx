@@ -106,8 +106,8 @@ const FAQ = [
 ];
 
 export default async function LandingPage() {
-  const plans = getPlans();
-  const featured = featuredExperience();
+  const plans = await getPlans();
+  const featured = await featuredExperience();
   const exploreHref = featured ? `/p/${featured.slug}` : "/signup";
   return (
     <div className="bg-porcelain">

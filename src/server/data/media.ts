@@ -1,8 +1,6 @@
-import fs from "node:fs";
-import path from "node:path";
 import { many, one, run, uid, now, type Row } from "../db";
 import { ApiError } from "../http";
-import { uploadsDir } from "../storage";
+import { get as getBlob, newKey, put as putBlob, remove as removeBlob } from "../blob";
 import { mapMedia } from "./properties";
 import type { PropertyMedia } from "@/lib/types";
 
@@ -35,10 +33,7 @@ const EXT: Record<string, string> = {
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
 };
 
-export function storageRoot() {
-  // Uploads live next to the database, so a configured volume carries both.
-  return uploadsDir();
-}
+
 
 export function validateUpload(file: File): { kind: "photo" | "floorplan" | "document" | "video"; ext: string } {
   const type = file.type;
@@ -72,26 +67,24 @@ export async function saveUpload(input: {
 }) {
   const { file } = input;
   if (input.propertyId) {
-    const owns = one<Row>(`SELECT id FROM properties WHERE id = ? AND org_id = ?`, [input.propertyId, input.orgId]);
+    const owns = await one<Row>(`SELECT id FROM properties WHERE id = ? AND org_id = ?`, [input.propertyId, input.orgId]);
     if (!owns) throw new ApiError("Imóvel inexistente.", 404, "not_found");
   }
   const validation = validateUpload(file);
   const kind = input.kind ?? validation.kind;
   const id = uid();
-  const dir = path.join(storageRoot(), input.orgId);
-  fs.mkdirSync(dir, { recursive: true });
   const fileName = `${id}.${validation.ext}`;
-  const buffer = Buffer.from(await file.arrayBuffer());
-  fs.writeFileSync(path.join(dir, fileName), buffer);
-  const sortRow = one<{ m: number }>(
-    `SELECT coalesce(max(sort), 0) + 1 AS m FROM property_media WHERE org_id = ? AND property_id IS ?`,
+  const storageKey = newKey(input.orgId, validation.ext);
+  await putBlob(storageKey, Buffer.from(await file.arrayBuffer()), file.type, input.orgId);
+  const sortRow = await one<{ m: number }>(
+    `SELECT coalesce(max(sort), 0) + 1 AS m FROM property_media WHERE org_id = ? AND property_id IS NOT DISTINCT FROM ?`,
     [input.orgId, input.propertyId ?? null],
   );
-  const hasPrimary = one<Row>(
-    `SELECT id FROM property_media WHERE org_id = ? AND property_id IS ? AND is_primary = 1`,
+  const hasPrimary = await one<Row>(
+    `SELECT id FROM property_media WHERE org_id = ? AND property_id IS NOT DISTINCT FROM ? AND is_primary = 1`,
     [input.orgId, input.propertyId ?? null],
   );
-  run(
+  await run(
     `INSERT INTO property_media (id, org_id, property_id, storage_key, public_path, file_name, mime_type,
       size_bytes, kind, room, caption, tags, is_primary, is_public, status, sort, uploaded_by, created_at, updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -99,7 +92,7 @@ export async function saveUpload(input: {
       id,
       input.orgId,
       input.propertyId ?? null,
-      `${input.orgId}/${fileName}`,
+      storageKey,
       null,
       file.name.slice(0, 200) || `upload-${id}.${validation.ext}`,
       file.type,
@@ -117,11 +110,11 @@ export async function saveUpload(input: {
       now(),
     ],
   );
-  const row = one<Row>(`SELECT * FROM property_media WHERE id = ?`, [id]);
+  const row = await one<Row>(`SELECT * FROM property_media WHERE id = ?`, [id]);
   return mapMedia(row!);
 }
 
-export function listMedia(
+export async function listMedia(
   orgId: string,
   filters: { propertyId?: string; kind?: string; q?: string; status?: string; limit?: number } = {},
 ) {
@@ -144,7 +137,7 @@ export function listMedia(
     const like = `%${filters.q}%`;
     params.push(like, like, like, like);
   }
-  const rows = many<Row>(
+  const rows = await many<Row>(
     `SELECT m.*, p.title AS property_title, p.reference AS property_reference
      FROM property_media m LEFT JOIN properties p ON p.id = m.property_id
      WHERE m.${where.join(" AND m.")} ORDER BY m.created_at DESC LIMIT ?`,
@@ -153,16 +146,16 @@ export function listMedia(
   return rows.map((r) => ({ ...mapMedia(r), property_title: r.property_title, property_reference: r.property_reference }));
 }
 
-export function getMedia(orgId: string, id: string) {
-  const row = one<Row>(`SELECT * FROM property_media WHERE id = ? AND org_id = ?`, [id, orgId]);
+export async function getMedia(orgId: string, id: string) {
+  const row = await one<Row>(`SELECT * FROM property_media WHERE id = ? AND org_id = ?`, [id, orgId]);
   return row ? mapMedia(row) : null;
 }
 
-export function getMediaRow(id: string) {
-  return one<Row>(`SELECT * FROM property_media WHERE id = ?`, [id]);
+export async function getMediaRow(id: string) {
+  return await one<Row>(`SELECT * FROM property_media WHERE id = ?`, [id]);
 }
 
-export function updateMedia(
+export async function updateMedia(
   orgId: string,
   id: string,
   patch: Partial<{
@@ -177,14 +170,14 @@ export function updateMedia(
     property_id: string | null;
   }>,
 ) {
-  const existing = getMedia(orgId, id);
+  const existing = await getMedia(orgId, id);
   if (!existing) throw new ApiError("Ficheiro inexistente.", 404, "not_found");
   if (patch.property_id) {
-    const owns = one<Row>(`SELECT id FROM properties WHERE id = ? AND org_id = ?`, [patch.property_id, orgId]);
+    const owns = await one<Row>(`SELECT id FROM properties WHERE id = ? AND org_id = ?`, [patch.property_id, orgId]);
     if (!owns) throw new ApiError("Imóvel inexistente.", 404, "not_found");
   }
   if (patch.is_primary) {
-    run(`UPDATE property_media SET is_primary = 0 WHERE org_id = ? AND property_id IS ?`, [
+    await run(`UPDATE property_media SET is_primary = 0 WHERE org_id = ? AND property_id IS NOT DISTINCT FROM ?`, [
       orgId,
       existing.property_id,
     ]);
@@ -201,49 +194,43 @@ export function updateMedia(
   if (patch.is_primary !== undefined) set.is_primary = patch.is_primary ? 1 : 0;
   set.updated_at = now();
   const keys = Object.keys(set);
-  run(
+  await run(
     `UPDATE property_media SET ${keys.map((k) => `${k} = ?`).join(", ")} WHERE id = ? AND org_id = ?`,
     [...keys.map((k) => set[k]), id, orgId],
   );
   // Publishing requires explicit approval: a public file must be approved.
   if (patch.is_public) {
-    run(`UPDATE property_media SET status = 'approved' WHERE id = ? AND org_id = ? AND status = 'rejected'`, [
+    await run(`UPDATE property_media SET status = 'approved' WHERE id = ? AND org_id = ? AND status = 'rejected'`, [
       id,
       orgId,
     ]);
   }
-  return getMedia(orgId, id)!;
+  return (await getMedia(orgId, id));
 }
 
-export function deleteMedia(orgId: string, id: string) {
-  const row = getMediaRow(id);
+export async function deleteMedia(orgId: string, id: string) {
+  const row = await getMediaRow(id);
   if (!row || row.org_id !== orgId) throw new ApiError("Ficheiro inexistente.", 404, "not_found");
-  if (row.storage_key) {
-    const file = path.join(storageRoot(), row.storage_key);
-    try {
-      fs.unlinkSync(file);
-    } catch {
-      /* file already gone */
-    }
-  }
-  run(`DELETE FROM property_media WHERE id = ? AND org_id = ?`, [id, orgId]);
+  if (row.storage_key) await removeBlob(row.storage_key);
+  await run(`DELETE FROM property_media WHERE id = ? AND org_id = ?`, [id, orgId]);
 }
 
-export function mediaFilePath(row: Row) {
+/** Bytes for a stored upload, whatever the active storage driver is. */
+export async function readMediaFile(row: Row): Promise<Buffer | null> {
   if (!row.storage_key) return null;
-  const file = path.join(storageRoot(), row.storage_key);
-  return fs.existsSync(file) ? file : null;
+  const blob = await getBlob(row.storage_key);
+  return blob ? blob.data : null;
 }
 
 export function mediaUrl(media: Pick<PropertyMedia, "id" | "public_path">) {
   return media.public_path || `/api/media/${media.id}/file`;
 }
 
-export function publicMedia(propertyId: string) {
-  return many<Row>(
+export async function publicMedia(propertyId: string) {
+  return (await many<Row>(
     `SELECT * FROM property_media WHERE property_id = ? AND is_public = 1 AND status = 'approved'
      ORDER BY is_primary DESC, sort, created_at`,
-  ).map(mapMedia);
+  )).map(mapMedia);
 }
 
 /* ───────── documents ───────── */
@@ -257,18 +244,16 @@ export async function saveDocument(input: {
   docType: string;
   accessLevel: "private" | "team" | "public";
 }) {
-  const owns = one<Row>(`SELECT id FROM properties WHERE id = ? AND org_id = ?`, [input.propertyId, input.orgId]);
+  const owns = await one<Row>(`SELECT id FROM properties WHERE id = ? AND org_id = ?`, [input.propertyId, input.orgId]);
   if (!owns) throw new ApiError("Imóvel inexistente.", 404, "not_found");
   validateUpload(input.file);
   if (input.file.size > LIMITS.document)
     throw new ApiError("O documento excede o limite de 12 MB.", 413, "too_large");
   const id = uid();
   const ext = EXT[input.file.type] ?? "bin";
-  const dir = path.join(storageRoot(), input.orgId, "documents");
-  fs.mkdirSync(dir, { recursive: true });
-  const storageKey = `${input.orgId}/documents/${id}.${ext}`;
-  fs.writeFileSync(path.join(storageRoot(), storageKey), Buffer.from(await input.file.arrayBuffer()));
-  run(
+  const storageKey = newKey(input.orgId, ext, "documents");
+  await putBlob(storageKey, Buffer.from(await input.file.arrayBuffer()), input.file.type, input.orgId);
+  await run(
     `INSERT INTO property_documents (id, org_id, property_id, storage_key, name, doc_type, access_level,
       mime_type, size_bytes, uploaded_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
     [
@@ -285,11 +270,11 @@ export async function saveDocument(input: {
       now(),
     ],
   );
-  return one<Row>(`SELECT * FROM property_documents WHERE id = ?`, [id])!;
+  return (await one<Row>(`SELECT * FROM property_documents WHERE id = ?`, [id]));
 }
 
-export function listDocuments(orgId: string, propertyId?: string) {
-  return many<Row>(
+export async function listDocuments(orgId: string, propertyId?: string) {
+  return await many<Row>(
     `SELECT d.*, p.full_name AS uploaded_by_name, pr.title AS property_title FROM property_documents d
      LEFT JOIN profiles p ON p.id = d.uploaded_by LEFT JOIN properties pr ON pr.id = d.property_id
      WHERE d.org_id = ? ${propertyId ? "AND d.property_id = ?" : ""} ORDER BY d.created_at DESC`,
@@ -297,19 +282,13 @@ export function listDocuments(orgId: string, propertyId?: string) {
   );
 }
 
-export function getDocument(id: string) {
-  return one<Row>(`SELECT * FROM property_documents WHERE id = ?`, [id]);
+export async function getDocument(id: string) {
+  return await one<Row>(`SELECT * FROM property_documents WHERE id = ?`, [id]);
 }
 
-export function deleteDocument(orgId: string, id: string) {
-  const row = getDocument(id);
+export async function deleteDocument(orgId: string, id: string) {
+  const row = await getDocument(id);
   if (!row || row.org_id !== orgId) throw new ApiError("Documento inexistente.", 404, "not_found");
-  if (row.storage_key) {
-    try {
-      fs.unlinkSync(path.join(storageRoot(), row.storage_key));
-    } catch {
-      /* ignore */
-    }
-  }
-  run(`DELETE FROM property_documents WHERE id = ? AND org_id = ?`, [id, orgId]);
+  if (row.storage_key) await removeBlob(row.storage_key);
+  await run(`DELETE FROM property_documents WHERE id = ? AND org_id = ?`, [id, orgId]);
 }

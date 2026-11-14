@@ -8,7 +8,7 @@ export default async function JoinPage({ searchParams }: { searchParams: Promise
   const { token } = await searchParams;
   const session = await getSession();
   const invite = token
-    ? one<Row>(`SELECT i.*, o.name AS org_name FROM invitations i JOIN organizations o ON o.id = i.org_id WHERE i.token = ?`, [token])
+    ? await one<Row>(`SELECT i.*, o.name AS org_name FROM invitations i JOIN organizations o ON o.id = i.org_id WHERE i.token = ?`, [token])
     : undefined;
 
   return (

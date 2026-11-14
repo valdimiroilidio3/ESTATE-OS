@@ -11,9 +11,9 @@ export async function POST(req: Request) {
   try {
     enforceRateLimit(req, "signup", 8, 10 * 60_000);
     const input = await readJson(req, signupSchema);
-    const { profileId, orgId } = createUserWithOrg(input);
-    const { token } = createSession(profileId, orgId);
-    logAudit({ orgId, actorId: profileId, action: "org.created", entity: "organization", entityId: orgId });
+    const { profileId, orgId } = await createUserWithOrg(input);
+    const { token } = await createSession(profileId, orgId);
+    await logAudit({ orgId, actorId: profileId, action: "org.created", entity: "organization", entityId: orgId });
     const res = NextResponse.json({ ok: true, redirect: "/app" });
     res.cookies.set("estate_session", token, sessionCookieOptions);
     return res;

@@ -7,8 +7,8 @@ export const runtime = "nodejs";
 
 export const GET = authed(async (_req, { session, params }) => {
   return json({
-    items: listContent(session.org.id, params.id),
-    report: verificationReport(session.org.id, params.id),
+    items: await listContent(session.org.id, params.id),
+    report: await verificationReport(session.org.id, params.id),
     provider: providerInfo(),
   });
 });

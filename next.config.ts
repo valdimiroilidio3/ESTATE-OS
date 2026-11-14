@@ -30,7 +30,6 @@ const nextConfig: NextConfig = {
   ...(standalone ? { output: "standalone" as const } : {}),
   // schema.sql is read at runtime; make sure the server bundle ships it.
   outputFileTracingIncludes: { "/**/*": ["./src/server/schema.sql"] },
-  serverExternalPackages: ["better-sqlite3"],
   allowedDevOrigins: ["*.e2b.app", "localhost", "127.0.0.1"],
   experimental: {
     serverActions: { bodySizeLimit: "12mb" },

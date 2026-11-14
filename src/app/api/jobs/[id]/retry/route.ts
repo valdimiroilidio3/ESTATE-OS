@@ -5,8 +5,8 @@ import { logAudit } from "@/server/audit";
 export const runtime = "nodejs";
 
 export const POST = authed(async (_req, { session, params }) => {
-  retryJob(session.org.id, params.id);
-  logAudit({
+  await retryJob(session.org.id, params.id);
+  await logAudit({
     orgId: session.org.id,
     actorId: session.profile.id,
     action: "ai.job.retried",

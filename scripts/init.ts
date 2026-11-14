@@ -6,20 +6,28 @@
  * Idempotent — safe to run on every deploy. It never inserts properties, people
  * or organisations. The first organisation is created by the first real signup.
  */
-import { db, one } from "../src/server/db";
+import { ensureSchema, many, one } from "../src/server/db";
 import { ensurePlans } from "../src/server/plans";
 
-ensurePlans();
+async function main() {
+  await ensureSchema();
+  await ensurePlans();
 
-const tables = db
-  .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`)
-  .all() as { name: string }[];
+  const tables = await many<{ table_name: string }>(
+    `SELECT table_name FROM information_schema.tables
+     WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name`,
+  );
+  const profiles = (await one<{ n: number }>(`SELECT count(*) AS n FROM profiles`))?.n ?? 0;
+  const orgs = (await one<{ n: number }>(`SELECT count(*) AS n FROM organizations`))?.n ?? 0;
 
-const profiles = one<{ n: number }>(`SELECT count(*) AS n FROM profiles`)?.n ?? 0;
-const orgs = one<{ n: number }>(`SELECT count(*) AS n FROM organizations`)?.n ?? 0;
-
-console.log(`✓ Schema pronto — ${tables.length} tabelas.`);
-console.log(`  Organizações: ${orgs} · Utilizadores: ${profiles}`);
-if (orgs === 0) {
-  console.log("  Instância vazia. Crie a primeira conta em /signup — essa conta define a primeira organização.");
+  console.log(`✓ Schema pronto — ${tables.length} tabelas.`);
+  console.log(`  Organizações: ${orgs} · Utilizadores: ${profiles}`);
+  if (orgs === 0) {
+    console.log("  Instância vazia. Crie a primeira conta em /signup — essa conta define a primeira organização.");
+  }
 }
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

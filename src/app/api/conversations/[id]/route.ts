@@ -9,21 +9,21 @@ export const runtime = "nodejs";
 
 export const GET = authed(async (_req, { session, params }) => {
   const settings = parseJson<{ showAssistantTranscripts?: boolean }>(
-    one<Row>(`SELECT settings FROM organizations WHERE id = ?`, [session.org.id])?.settings,
+    (await one<Row>(`SELECT settings FROM organizations WHERE id = ?`, [session.org.id]))?.settings,
     {},
   );
   if (settings.showAssistantTranscripts === false) {
     throw forbidden("As transcrições do assistente estão desativadas nas definições de privacidade.");
   }
-  const data = getConversation(session.org.id, params.id);
+  const data = await getConversation(session.org.id, params.id);
   if (!data) throw notFound("Conversa não encontrada.");
   return json(data);
 });
 
 export const PATCH = authed(async (req, { session, params }) => {
   const input = await readJson(req, conversationReviewSchema);
-  setReviewStatus(session.org.id, params.id, input.review_status);
-  logAudit({
+  await setReviewStatus(session.org.id, params.id, input.review_status);
+  await logAudit({
     orgId: session.org.id,
     actorId: session.profile.id,
     action: "conversation.reviewed",

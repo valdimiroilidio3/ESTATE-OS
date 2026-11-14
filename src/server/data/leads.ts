@@ -12,7 +12,7 @@ export const PIPELINE: { id: LeadStatus; label: string }[] = [
   { id: "lost", label: "Lost" },
 ];
 
-export function listLeads(
+export async function listLeads(
   orgId: string,
   opts: { q?: string; status?: string; propertyId?: string; ownerId?: string; limit?: number } = {},
 ) {
@@ -35,7 +35,7 @@ export function listLeads(
     const like = `%${opts.q}%`;
     params.push(like, like, like, like);
   }
-  return many<Row>(
+  return await many<Row>(
     `SELECT l.*, p.title AS property_title, p.reference AS property_reference, pr.full_name AS owner_name
      FROM leads l LEFT JOIN properties p ON p.id = l.property_id
      LEFT JOIN profiles pr ON pr.id = l.owner_id
@@ -46,8 +46,8 @@ export function listLeads(
   ) as Lead[];
 }
 
-export function getLead(orgId: string, id: string) {
-  return one<Row>(
+export async function getLead(orgId: string, id: string) {
+  return await one<Row>(
     `SELECT l.*, p.title AS property_title, p.reference AS property_reference, pr.full_name AS owner_name
      FROM leads l LEFT JOIN properties p ON p.id = l.property_id
      LEFT JOIN profiles pr ON pr.id = l.owner_id
@@ -56,7 +56,7 @@ export function getLead(orgId: string, id: string) {
   ) as Lead | undefined;
 }
 
-export function createLead(input: {
+export async function createLead(input: {
   orgId: string;
   propertyId?: string | null;
   name: string;
@@ -69,7 +69,7 @@ export function createLead(input: {
   status?: LeadStatus;
 }) {
   const id = uid();
-  run(
+  await run(
     `INSERT INTO leads (id, org_id, property_id, name, email, phone, source, message, status, priority,
       consent_marketing, consent_terms, consent_at, created_at, updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -91,16 +91,16 @@ export function createLead(input: {
       now(),
     ],
   );
-  addLeadEvent({
+  await addLeadEvent({
     orgId: input.orgId,
     leadId: id,
     type: "created",
     note: `Origem: ${input.source}`,
   });
-  return getLead(input.orgId, id)!;
+  return (await getLead(input.orgId, id));
 }
 
-export function updateLead(
+export async function updateLead(
   orgId: string,
   id: string,
   patch: {
@@ -112,7 +112,7 @@ export function updateLead(
   },
   actorId?: string,
 ) {
-  const lead = getLead(orgId, id);
+  const lead = await getLead(orgId, id);
   if (!lead) throw new ApiError("Lead inexistente.", 404, "not_found");
   const set: Record<string, unknown> = {};
   const changes: string[] = [];
@@ -122,7 +122,7 @@ export function updateLead(
   }
   if (patch.owner_id !== undefined) {
     if (patch.owner_id) {
-      const member = one<Row>(
+      const member = await one<Row>(
         `SELECT profile_id FROM organization_members WHERE org_id = ? AND profile_id = ?`,
         [orgId, patch.owner_id],
       );
@@ -137,17 +137,17 @@ export function updateLead(
   if (!Object.keys(set).length) return lead;
   set.updated_at = now();
   const keys = Object.keys(set);
-  run(
+  await run(
     `UPDATE leads SET ${keys.map((k) => `${k} = ?`).join(", ")} WHERE id = ? AND org_id = ?`,
     [...keys.map((k) => set[k]), id, orgId],
   );
   if (changes.length) {
-    addLeadEvent({ orgId, leadId: id, type: "status_change", note: changes.join(" · "), actorId });
+    await addLeadEvent({ orgId, leadId: id, type: "status_change", note: changes.join(" · "), actorId });
   }
-  return getLead(orgId, id)!;
+  return (await getLead(orgId, id));
 }
 
-export function addLeadEvent(input: {
+export async function addLeadEvent(input: {
   orgId: string;
   leadId: string;
   type: string;
@@ -155,23 +155,23 @@ export function addLeadEvent(input: {
   actorId?: string | null;
   meta?: Record<string, unknown>;
 }) {
-  run(
+  await run(
     `INSERT INTO lead_events (id, org_id, lead_id, type, note, actor_id, meta, created_at) VALUES (?,?,?,?,?,?,?,?)`,
     [uid(), input.orgId, input.leadId, input.type, input.note ?? null, input.actorId ?? null, JSON.stringify(input.meta ?? {}), now()],
   );
 }
 
-export function listLeadEvents(orgId: string, leadId: string) {
-  return many<Row>(
+export async function listLeadEvents(orgId: string, leadId: string) {
+  return (await many<Row>(
     `SELECT e.*, p.full_name AS actor_name FROM lead_events e
      LEFT JOIN profiles p ON p.id = e.actor_id
      WHERE e.org_id = ? AND e.lead_id = ? ORDER BY e.created_at DESC`,
     [orgId, leadId],
-  ).map((r) => ({ ...r, meta: parseJson(r.meta, {}) }));
+  )).map((r) => ({ ...r, meta: parseJson(r.meta, {}) }));
 }
 
-export function leadStats(orgId: string) {
-  const rows = many<{ status: string; c: number }>(
+export async function leadStats(orgId: string) {
+  const rows = await many<{ status: string; c: number }>(
     `SELECT status, count(*) AS c FROM leads WHERE org_id = ? GROUP BY status`,
     [orgId],
   );
@@ -183,8 +183,8 @@ export function leadStats(orgId: string) {
   return { total, byStatus, won, active };
 }
 
-export function leadsCsv(orgId: string) {
-  const rows = listLeads(orgId, { limit: 500 });
+export async function leadsCsv(orgId: string) {
+  const rows = await listLeads(orgId, { limit: 500 });
   const header = ["name", "email", "phone", "status", "source", "property", "created_at", "consent_marketing"];
   const lines = rows.map((l) =>
     [

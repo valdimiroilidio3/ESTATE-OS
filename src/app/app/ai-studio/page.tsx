@@ -17,11 +17,11 @@ export const metadata: Metadata = { title: "AI Studio" };
 export default async function AiStudioPage() {
   const session = await requireSessionPage();
   const provider = providerInfo();
-  const properties = listProperties(session.org.id, { limit: 60 }).items;
-  const stats = jobStats(session.org.id);
-  const jobs = listJobs(session.org.id, { limit: 12 });
-  const media = listMedia(session.org.id, { limit: 200 });
-  const contentCounts = many<Row>(
+  const properties = (await listProperties(session.org.id, { limit: 60 })).items;
+  const stats = await jobStats(session.org.id);
+  const jobs = await listJobs(session.org.id, { limit: 12 });
+  const media = await listMedia(session.org.id, { limit: 200 });
+  const contentCounts = await many<Row>(
     `SELECT property_id, count(*) AS total, sum(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) AS approved
      FROM property_content WHERE org_id = ? GROUP BY property_id`,
     [session.org.id],

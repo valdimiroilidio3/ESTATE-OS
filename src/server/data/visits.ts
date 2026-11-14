@@ -2,7 +2,7 @@ import { many, one, run, uid, now, type Row } from "../db";
 import { ApiError } from "../http";
 import type { Visit } from "@/lib/types";
 
-export function listVisits(orgId: string, opts: { from?: string; to?: string; status?: string; propertyId?: string } = {}) {
+export async function listVisits(orgId: string, opts: { from?: string; to?: string; status?: string; propertyId?: string } = {}) {
   const where = ["v.org_id = ?"];
   const params: unknown[] = [orgId];
   if (opts.from) {
@@ -21,7 +21,7 @@ export function listVisits(orgId: string, opts: { from?: string; to?: string; st
     where.push("v.property_id = ?");
     params.push(opts.propertyId);
   }
-  return many<Row>(
+  return await many<Row>(
     `SELECT v.*, p.title AS property_title, p.reference AS property_reference,
             l.name AS lead_name, l.email AS lead_email, pr.full_name AS agent_name
      FROM visits v JOIN properties p ON p.id = v.property_id
@@ -31,8 +31,8 @@ export function listVisits(orgId: string, opts: { from?: string; to?: string; st
   ) as Visit[];
 }
 
-export function getVisit(orgId: string, id: string) {
-  return one<Row>(
+export async function getVisit(orgId: string, id: string) {
+  return await one<Row>(
     `SELECT v.*, p.title AS property_title, l.name AS lead_name, pr.full_name AS agent_name
      FROM visits v JOIN properties p ON p.id = v.property_id
      LEFT JOIN leads l ON l.id = v.lead_id LEFT JOIN profiles pr ON pr.id = v.agent_id
@@ -41,7 +41,7 @@ export function getVisit(orgId: string, id: string) {
   ) as Visit | undefined;
 }
 
-export function createVisit(
+export async function createVisit(
   orgId: string,
   input: {
     property_id: string;
@@ -53,14 +53,14 @@ export function createVisit(
     notes?: string | null;
   },
 ) {
-  const property = one<Row>(`SELECT id FROM properties WHERE id = ? AND org_id = ?`, [input.property_id, orgId]);
+  const property = await one<Row>(`SELECT id FROM properties WHERE id = ? AND org_id = ?`, [input.property_id, orgId]);
   if (!property) throw new ApiError("Imóvel inexistente.", 404, "not_found");
   if (input.lead_id) {
-    const lead = one<Row>(`SELECT id FROM leads WHERE id = ? AND org_id = ?`, [input.lead_id, orgId]);
+    const lead = await one<Row>(`SELECT id FROM leads WHERE id = ? AND org_id = ?`, [input.lead_id, orgId]);
     if (!lead) throw new ApiError("Lead inexistente.", 404, "not_found");
   }
   const id = uid();
-  run(
+  await run(
     `INSERT INTO visits (id, org_id, property_id, lead_id, agent_id, scheduled_at, timezone, status, notes, created_at, updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
     [
@@ -78,16 +78,16 @@ export function createVisit(
     ],
   );
   if (input.lead_id && input.status && input.status !== "requested") {
-    run(`UPDATE leads SET status = 'visit_scheduled', updated_at = ? WHERE id = ? AND org_id = ?`, [
+    await run(`UPDATE leads SET status = 'visit_scheduled', updated_at = ? WHERE id = ? AND org_id = ?`, [
       now(),
       input.lead_id,
       orgId,
     ]);
   }
-  return getVisit(orgId, id)!;
+  return (await getVisit(orgId, id));
 }
 
-export function updateVisit(
+export async function updateVisit(
   orgId: string,
   id: string,
   patch: Partial<{
@@ -100,7 +100,7 @@ export function updateVisit(
     lead_id: string | null;
   }>,
 ) {
-  const visit = getVisit(orgId, id);
+  const visit = await getVisit(orgId, id);
   if (!visit) throw new ApiError("Visita inexistente.", 404, "not_found");
   if (patch.status === "confirmed" && !visit.scheduled_at && !patch.scheduled_at) {
     throw new ApiError(
@@ -119,28 +119,28 @@ export function updateVisit(
   if (!Object.keys(set).length) return visit;
   set.updated_at = now();
   const keys = Object.keys(set);
-  run(
+  await run(
     `UPDATE visits SET ${keys.map((k) => `${k} = ?`).join(", ")} WHERE id = ? AND org_id = ?`,
     [...keys.map((k) => set[k]), id, orgId],
   );
   if (visit.lead_id && (patch.status === "confirmed" || patch.status === "completed")) {
-    run(`UPDATE leads SET status = 'visit_scheduled', updated_at = ? WHERE id = ? AND org_id = ? AND status IN ('new','contacted','qualified')`, [
+    await run(`UPDATE leads SET status = 'visit_scheduled', updated_at = ? WHERE id = ? AND org_id = ? AND status IN ('new','contacted','qualified')`, [
       now(),
       visit.lead_id,
       orgId,
     ]);
   }
-  return getVisit(orgId, id)!;
+  return (await getVisit(orgId, id));
 }
 
-export function upcomingVisits(orgId: string, limit = 5) {
-  return many<Row>(
+export async function upcomingVisits(orgId: string, limit = 5) {
+  return await many<Row>(
     `SELECT v.*, p.title AS property_title, l.name AS lead_name, pr.full_name AS agent_name
      FROM visits v JOIN properties p ON p.id = v.property_id
      LEFT JOIN leads l ON l.id = v.lead_id LEFT JOIN profiles pr ON pr.id = v.agent_id
      WHERE v.org_id = ? AND v.status IN ('requested','confirmed','rescheduled')
-       AND (v.scheduled_at IS NULL OR v.scheduled_at >= datetime('now','-1 day'))
+       AND (v.scheduled_at IS NULL OR v.scheduled_at >= ?)
      ORDER BY v.scheduled_at IS NULL, v.scheduled_at ASC LIMIT ?`,
-    [orgId, limit],
+    [orgId, now(), limit],
   ) as Visit[];
 }

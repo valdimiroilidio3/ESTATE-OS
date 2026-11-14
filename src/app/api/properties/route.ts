@@ -11,7 +11,7 @@ export const runtime = "nodejs";
 
 export const GET = authed(async (req, { session }) => {
   const url = new URL(req.url);
-  const result = listProperties(session.org.id, {
+  const result = await listProperties(session.org.id, {
     q: url.searchParams.get("q") ?? undefined,
     status: url.searchParams.get("status") ?? undefined,
     operation: url.searchParams.get("operation") ?? undefined,
@@ -25,15 +25,15 @@ export const GET = authed(async (req, { session }) => {
 export const POST = authed(async (req, { session }) => {
   if (!canEdit(session.role)) throw forbidden("O seu perfil é de leitura.");
   const input = await readJson(req, propertyInputSchema);
-  checkQuota(session.org.id, session.org.plan_code, "properties");
-  const property = createProperty(session.org.id, session.profile.id, input);
-  logAudit({
+  await checkQuota(session.org.id, session.org.plan_code, "properties");
+  const property = await createProperty(session.org.id, session.profile.id, input);
+  await logAudit({
     orgId: session.org.id,
     actorId: session.profile.id,
     action: "property.created",
     entity: "property",
-    entityId: property.id,
-    meta: { reference: property.reference },
+    entityId: property!.id,
+    meta: { reference: property!.reference },
   });
   const tasks = (input.tasks.length ? input.tasks : ["validate_fields", "generate_listing"]) as TaskType[];
   const valid: TaskType[] = [
@@ -46,15 +46,18 @@ export const POST = authed(async (req, { session }) => {
     "generate_media_brief",
     "prepare_experience",
   ];
-  const jobIds = tasks
-    .filter((t) => valid.includes(t))
-    .map((taskType) =>
-      enqueueJob({
-        orgId: session.org.id,
-        propertyId: property.id,
-        taskType,
-        createdBy: session.profile.id,
-      }),
-    );
+  // Jobs are queued concurrently; the API never waits for the pipeline itself.
+  const jobIds = await Promise.all(
+    tasks
+      .filter((t) => valid.includes(t))
+      .map((taskType) =>
+        enqueueJob({
+          orgId: session.org.id,
+          propertyId: property!.id,
+          taskType,
+          createdBy: session.profile.id,
+        }),
+      ),
+  );
   return json({ property, jobIds }, { status: 201 });
 });

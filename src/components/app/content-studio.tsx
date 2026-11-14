@@ -227,7 +227,7 @@ export function ContentStudio({
     }
   }
 
-  function download(item: ContentRecord) {
+  async function download(item: ContentRecord) {
     const text = [
       `# ${item.title ?? ""}`,
       `(${KIND_LABEL[item.kind] ?? item.kind} · ${item.locale.toUpperCase()} · ${item.provider})`,
@@ -433,11 +433,11 @@ export function ContentStudio({
         footer={
           <>
             <button onClick={() => setEditing(null)} className="btn btn-sm btn-ghost">Cancelar</button>
-            <button onClick={() => saveContent()} disabled={saving} className="btn btn-sm btn-outline">
+            <button onClick={() => void saveContent()} disabled={saving} className="btn btn-sm btn-outline">
               {saving ? <Spinner /> : null} Guardar rascunho
             </button>
             {editing?.status !== "approved" && !readOnly ? (
-              <button onClick={() => saveContent("approved")} disabled={saving} className="btn btn-sm btn-primary">
+              <button onClick={() => void saveContent("approved")} disabled={saving} className="btn btn-sm btn-primary">
                 <Check size={13} /> Guardar e aprovar
               </button>
             ) : null}

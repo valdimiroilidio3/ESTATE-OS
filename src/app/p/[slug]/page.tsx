@@ -45,7 +45,7 @@ function defaultConfig(): ExperienceConfig {
 }
 
 async function load(slug: string, preview: boolean): Promise<Loaded | null> {
-  const experienceRow = one<Row>(
+  const experienceRow = await one<Row>(
     `SELECT e.*, p.org_id AS p_org_id FROM property_experiences e
      JOIN properties p ON p.id = e.property_id WHERE e.slug = ?`,
     [slug],
@@ -57,16 +57,16 @@ async function load(slug: string, preview: boolean): Promise<Loaded | null> {
     const session = await getSession();
     if (!session || session.org.id !== experienceRow.p_org_id) return null;
   }
-  const property = one<Row>(`SELECT * FROM properties WHERE id = ? AND status != 'archived'`, [experienceRow.property_id]);
+  const property = await one<Row>(`SELECT * FROM properties WHERE id = ? AND status != 'archived'`, [experienceRow.property_id]);
   if (!property) return null;
-  const org = one<Row>(`SELECT * FROM organizations WHERE id = ?`, [experienceRow.org_id]);
+  const org = await one<Row>(`SELECT * FROM organizations WHERE id = ?`, [experienceRow.org_id]);
   if (!org) return null;
-  const media = many<Row>(
+  const media = (await many<Row>(
     `SELECT * FROM property_media WHERE property_id = ? AND is_public = 1 AND status = 'approved'
      ORDER BY is_primary DESC, sort, created_at`,
     [property.id],
-  ).map(mapMedia);
-  const listingRow = one<Row>(
+  )).map(mapMedia);
+  const listingRow = await one<Row>(
     `SELECT * FROM property_content WHERE property_id = ? AND kind = 'listing' AND status = 'approved'
      ORDER BY CASE locale WHEN 'pt' THEN 0 ELSE 1 END, updated_at DESC LIMIT 1`,
     [property.id],
@@ -127,14 +127,14 @@ export default async function PublicPropertyPage({
   const { property, org, media, listing, config, preview: isPreview } = data;
   const experience = mapExperience(data.experienceRow);
   const layout: ExperienceLayout = experience.layout;
-  const branding = orgBranding(org.id);
+  const branding = await orgBranding(org.id);
   const isDemo = orgIsDemo(org);
   const assistantEnabled = parseJson<{ assistantEnabled?: boolean }>(org.settings, {}).assistantEnabled !== false;
   const galleryConfig = config.gallery ?? { mode: "masonry" as const, mediaIds: [], showCaptions: true };
   const galleryMedia = galleryConfig.mediaIds.length
     ? media.filter((item) => galleryConfig.mediaIds.includes(item.id))
     : media;
-  const specs = one<Row>(`SELECT * FROM property_specs WHERE property_id = ?`, [property.id]);
+  const specs = await one<Row>(`SELECT * FROM property_specs WHERE property_id = ?`, [property.id]);
   const payload = parseJson<{ summary?: string; features?: string[] }>(listing?.payload, {});
   const story = listing?.body ?? null;
   const hero = config.hero;
@@ -147,7 +147,7 @@ export default async function PublicPropertyPage({
   const price = money(property.price_cents, property.currency);
   const publicLocation = [property.location, property.city].filter(Boolean).join(", ") || property.city || "";
   const order = config.sections.filter((s) => s.enabled).map((s) => s.id);
-  const questions = suggestedQuestions(property.id, org.id, "pt");
+  const questions = await suggestedQuestions(property.id, org.id, "pt");
   const contactHref = `mailto:${consultant.email || ""}`;
   const phoneHref = consultant.phone ? `tel:${consultant.phone.replace(/\s/g, "")}` : "#contact";
 

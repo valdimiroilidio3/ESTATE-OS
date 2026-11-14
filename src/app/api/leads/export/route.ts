@@ -7,14 +7,14 @@ export const runtime = "nodejs";
 
 export const GET = authed(async (_req, { session }) => {
   if (!roles.canManageOrg(session.role)) throw forbidden("Exportação reservada a administradores.");
-  logAudit({
+  await logAudit({
     orgId: session.org.id,
     actorId: session.profile.id,
     action: "leads.exported",
     entity: "lead",
     meta: { format: "csv" },
   });
-  const csv = leadsCsv(session.org.id);
+  const csv = await leadsCsv(session.org.id);
   return new Response(csv, {
     headers: {
       "content-type": "text/csv; charset=utf-8",

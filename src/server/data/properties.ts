@@ -46,7 +46,7 @@ export function mapSpecs(row: Row | undefined): PropertySpecs | null {
 }
 
 export function mapProperty(row: Row, specsRow?: Row): Property {
-  const specs = specsRow ?? one<Row>(`SELECT * FROM property_specs WHERE property_id = ?`, [row.id]);
+  const specs = specsRow ?? EMPTY_SPECS;
   return {
     id: row.id,
     org_id: row.org_id,
@@ -71,7 +71,7 @@ export function mapProperty(row: Row, specsRow?: Row): Property {
   };
 }
 
-export function listProperties(
+export async function listProperties(
   orgId: string,
   opts: {
     q?: string;
@@ -110,7 +110,7 @@ export function listProperties(
       : opts.orderBy === "created_at"
         ? "p.created_at DESC"
         : "p.updated_at DESC";
-  const rows = many<Row>(
+  const rows = await many<Row>(
     `SELECT p.*, s.usable_area_m2, s.bedrooms, s.bathrooms, s.amenities, s.features, s.views,
             s.plot_area_m2, s.parking, s.typology, s.condition, s.year_built, s.energy_rating,
             s.property_id AS s_property_id,
@@ -121,10 +121,10 @@ export function listProperties(
     [...params, limit, offset],
   );
   const total =
-    one<{ c: number }>(
+    (await one<{ c: number }>(
       `SELECT count(*) AS c FROM properties p WHERE ${where.join(" AND ")}`,
       params,
-    )?.c ?? 0;
+    ))?.c ?? 0;
   const items = rows.map((row) => ({
     ...mapProperty(row, {
       ...row,
@@ -139,19 +139,25 @@ export function listProperties(
   return { items, total, limit, offset };
 }
 
-export function getProperty(orgId: string, id: string): Property | null {
-  const row = one<Row>(`SELECT * FROM properties WHERE id = ? AND org_id = ?`, [id, orgId]);
-  return row ? mapProperty(row) : null;
+/** Fetches the specification row and maps the property with it. */
+async function loadProperty(row: Row): Promise<Property> {
+  const specs = await one<Row>(`SELECT * FROM property_specs WHERE property_id = ?`, [row.id]);
+  return mapProperty(row, specs ?? undefined);
 }
 
-export function getPropertyByReference(orgId: string, reference: string): Property | null {
-  const row = one<Row>(`SELECT * FROM properties WHERE reference = ? AND org_id = ?`, [reference, orgId]);
-  return row ? mapProperty(row) : null;
+export async function getProperty(orgId: string, id: string): Promise<Property | null> {
+  const row = await one<Row>(`SELECT * FROM properties WHERE id = ? AND org_id = ?`, [id, orgId]);
+  return row ? loadProperty(row) : null;
 }
 
-function nextReference(orgId: string) {
+export async function getPropertyByReference(orgId: string, reference: string): Promise<Property | null> {
+  const row = await one<Row>(`SELECT * FROM properties WHERE reference = ? AND org_id = ?`, [reference, orgId]);
+  return row ? loadProperty(row) : null;
+}
+
+async function nextReference(orgId: string) {
   const year = new Date().getFullYear();
-  const row = one<{ c: number }>(
+  const row = await one<{ c: number }>(
     `SELECT count(*) AS c FROM properties WHERE org_id = ? AND reference LIKE ?`,
     [orgId, `ES-${year}-%`],
   );
@@ -159,27 +165,27 @@ function nextReference(orgId: string) {
   return `ES-${year}-${seq}`;
 }
 
-export function computeCompletion(propertyId: string, orgId: string) {
-  const property = getProperty(orgId, propertyId);
+export async function computeCompletion(propertyId: string, orgId: string) {
+  const property = await getProperty(orgId, propertyId);
   if (!property) throw new ApiError("Imóvel inexistente.", 404, "not_found");
   const specs = property.specs;
   const photos =
-    one<{ c: number; approved: number }>(
+    await one<{ c: number; approved: number }>(
       `SELECT count(*) AS c, sum(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) AS approved
        FROM property_media WHERE property_id = ? AND kind IN ('photo','floorplan')`,
       [propertyId],
     ) ?? { c: 0, approved: 0 };
   const approvedPhotos =
-    one<{ c: number }>(
+    (await one<{ c: number }>(
       `SELECT count(*) AS c FROM property_media WHERE property_id = ? AND kind = 'photo' AND status = 'approved'`,
       [propertyId],
-    )?.c ?? 0;
+    ))?.c ?? 0;
   const approvedContent =
-    one<{ c: number }>(
+    (await one<{ c: number }>(
       `SELECT count(*) AS c FROM property_content WHERE property_id = ? AND status = 'approved' AND kind = 'listing'`,
       [propertyId],
-    )?.c ?? 0;
-  const experience = one<Row>(`SELECT status FROM property_experiences WHERE property_id = ?`, [propertyId]);
+    ))?.c ?? 0;
+  const experience = await one<Row>(`SELECT status FROM property_experiences WHERE property_id = ?`, [propertyId]);
 
   const checks: { key: string; label: string; weight: number; done: boolean }[] = [
     { key: "title", label: "Título do imóvel", weight: 8, done: property.title.trim().length > 2 },
@@ -230,21 +236,21 @@ export function computeCompletion(propertyId: string, orgId: string) {
   };
 }
 
-export function refreshCompletion(propertyId: string, orgId: string) {
-  const { score } = computeCompletion(propertyId, orgId);
-  run(`UPDATE properties SET completion = ?, updated_at = ? WHERE id = ?`, [score, now(), propertyId]);
+export async function refreshCompletion(propertyId: string, orgId: string) {
+  const { score } = await computeCompletion(propertyId, orgId);
+  await run(`UPDATE properties SET completion = ?, updated_at = ? WHERE id = ?`, [score, now(), propertyId]);
   return score;
 }
 
-export function propertyExists(orgId: string, id: string) {
-  return Boolean(one<Row>(`SELECT id FROM properties WHERE id = ? AND org_id = ?`, [id, orgId]));
+export async function propertyExists(orgId: string, id: string) {
+  return Boolean(await one<Row>(`SELECT id FROM properties WHERE id = ? AND org_id = ?`, [id, orgId]));
 }
 
-export function createProperty(orgId: string, userId: string, input: PropertyInput) {
-  const id = uid();
+export async function createProperty(orgId: string, userId: string, input: PropertyInput) {
+  const id = await uid();
   const timestamp = now();
   const title = input.title.trim();
-  run(
+  await run(
     `INSERT INTO properties (id, org_id, reference, title, property_type, operation, price_cents, currency,
       country, city, location, address_line, address_private, status, summary, internal_notes,
       completion, created_by, created_at, updated_at)
@@ -273,7 +279,7 @@ export function createProperty(orgId: string, userId: string, input: PropertyInp
     ],
   );
   const s = input.specs;
-  run(
+  await run(
     `INSERT INTO property_specs (property_id, org_id, usable_area_m2, plot_area_m2, bedrooms, bathrooms,
       parking, typology, condition, year_built, energy_rating, amenities, features, views, extra_fields)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -297,26 +303,26 @@ export function createProperty(orgId: string, userId: string, input: PropertyInp
   );
   if (input.mediaIds.length) {
     for (const mediaId of input.mediaIds) {
-      run(
+      await run(
         `UPDATE property_media SET property_id = ?, sort = sort + ? WHERE id = ? AND org_id = ? AND property_id IS NULL`,
         [id, 0, mediaId, orgId],
       );
     }
     // first attached photo becomes primary
-    const first = one<Row>(
+    const first = await one<Row>(
       `SELECT id FROM property_media WHERE property_id = ? AND org_id = ? AND kind = 'photo' ORDER BY sort, created_at LIMIT 1`,
       [id, orgId],
     );
-    if (first) run(`UPDATE property_media SET is_primary = 1 WHERE id = ?`, [first.id]);
+    if (first) await run(`UPDATE property_media SET is_primary = 1 WHERE id = ?`, [first.id]);
   }
-  refreshCompletion(id, orgId);
-  return getProperty(orgId, id)!;
+  await refreshCompletion(id, orgId);
+  return (await getProperty(orgId, id));
 }
 
 type PatchInput = Partial<PropertyInput> & { status?: PropertyStatus };
 
-export function updateProperty(orgId: string, id: string, patch: PatchInput) {
-  const existing = getProperty(orgId, id);
+export async function updateProperty(orgId: string, id: string, patch: PatchInput) {
+  const existing = await getProperty(orgId, id);
   if (!existing) throw new ApiError("Imóvel inexistente.", 404, "not_found");
   const columns: Record<string, unknown> = {};
   if (patch.title !== undefined) columns.title = patch.title.trim();
@@ -335,7 +341,7 @@ export function updateProperty(orgId: string, id: string, patch: PatchInput) {
 
   const entries = Object.entries(columns);
   if (entries.length) {
-    run(
+    await run(
       `UPDATE properties SET ${entries.map(([k]) => `${k} = ?`).join(", ")}, updated_at = ? WHERE id = ? AND org_id = ?`,
       [...entries.map(([, v]) => v), now(), id, orgId],
     );
@@ -352,22 +358,22 @@ export function updateProperty(orgId: string, id: string, patch: PatchInput) {
     set.features = JSON.stringify(s.features ?? existing.specs?.features ?? []);
     set.views = JSON.stringify(s.views ?? existing.specs?.views ?? []);
     const keys = Object.keys(set);
-    run(
+    await run(
       `UPDATE property_specs SET ${keys.map((k) => `${k} = ?`).join(", ")} WHERE property_id = ? AND org_id = ?`,
       [...keys.map((k) => set[k]), id, orgId],
     );
   }
   if (patch.mediaIds && patch.mediaIds.length) {
     for (const mediaId of patch.mediaIds) {
-      run(`UPDATE property_media SET property_id = ? WHERE id = ? AND org_id = ?`, [id, mediaId, orgId]);
+      await run(`UPDATE property_media SET property_id = ? WHERE id = ? AND org_id = ?`, [id, mediaId, orgId]);
     }
   }
-  refreshCompletion(id, orgId);
-  return getProperty(orgId, id)!;
+  await refreshCompletion(id, orgId);
+  return (await getProperty(orgId, id));
 }
 
-export function setPropertyStatus(orgId: string, id: string, status: PropertyStatus) {
-  run(`UPDATE properties SET status = ?, updated_at = ? WHERE id = ? AND org_id = ?`, [
+export async function setPropertyStatus(orgId: string, id: string, status: PropertyStatus) {
+  await run(`UPDATE properties SET status = ?, updated_at = ? WHERE id = ? AND org_id = ?`, [
     status,
     now(),
     id,
@@ -375,17 +381,34 @@ export function setPropertyStatus(orgId: string, id: string, status: PropertySta
   ]);
 }
 
-export function archiveProperty(orgId: string, id: string) {
-  setPropertyStatus(orgId, id, "archived");
+export async function archiveProperty(orgId: string, id: string) {
+  await setPropertyStatus(orgId, id, "archived");
 }
 
-export function deleteProperty(orgId: string, id: string) {
-  const existing = getProperty(orgId, id);
+export async function deleteProperty(orgId: string, id: string) {
+  const existing = await getProperty(orgId, id);
   if (!existing) throw new ApiError("Imóvel inexistente.", 404, "not_found");
-  run(`DELETE FROM properties WHERE id = ? AND org_id = ?`, [id, orgId]);
+  await run(`DELETE FROM properties WHERE id = ? AND org_id = ?`, [id, orgId]);
 }
 
 /* ─────────── aggregates used by the property profile ─────────── */
+
+/** Used only when a property genuinely has no specification row yet. */
+const EMPTY_SPECS: Row = {
+  usable_area_m2: null,
+  plot_area_m2: null,
+  bedrooms: null,
+  bathrooms: null,
+  parking: null,
+  typology: null,
+  condition: null,
+  year_built: null,
+  energy_rating: null,
+  amenities: null,
+  features: null,
+  views: null,
+  extra_fields: null,
+};
 
 export interface PropertyBundle {
   property: Property;
@@ -396,47 +419,47 @@ export interface PropertyBundle {
   visits: Visit[];
   documents: Row[];
   jobs: Job[];
-  completion: ReturnType<typeof computeCompletion>;
+  completion: Awaited<ReturnType<typeof computeCompletion>>;
 }
 
-export function getPropertyBundle(orgId: string, id: string): PropertyBundle | null {
-  const property = getProperty(orgId, id);
+export async function getPropertyBundle(orgId: string, id: string): Promise<PropertyBundle | null> {
+  const property = await getProperty(orgId, id);
   if (!property) return null;
-  const media = many<Row>(
+  const media = (await many<Row>(
     `SELECT * FROM property_media WHERE org_id = ? AND property_id = ? ORDER BY is_primary DESC, sort, created_at`,
     [orgId, id],
-  ).map(mapMedia);
-  const content = many<Row>(
+  )).map(mapMedia);
+  const content = (await many<Row>(
     `SELECT * FROM property_content WHERE org_id = ? AND property_id = ? ORDER BY created_at DESC`,
     [orgId, id],
-  ).map(mapContent);
-  const expRow = one<Row>(`SELECT * FROM property_experiences WHERE org_id = ? AND property_id = ?`, [orgId, id]);
-  const experience = expRow ? mapExperience(expRow) : null;
-  const leads = many<Row>(
+  )).map(mapContent);
+  const expRow = await one<Row>(`SELECT * FROM property_experiences WHERE org_id = ? AND property_id = ?`, [orgId, id]);
+  const experience = expRow ? await mapExperience(expRow) : null;
+  const leads = await many<Row>(
     `SELECT l.*, p.title AS property_title, p.reference AS property_reference, pr.full_name AS owner_name
      FROM leads l LEFT JOIN properties p ON p.id = l.property_id
      LEFT JOIN profiles pr ON pr.id = l.owner_id
      WHERE l.org_id = ? AND l.property_id = ? ORDER BY l.created_at DESC`,
     [orgId, id],
   ) as Lead[];
-  const visits = many<Row>(
+  const visits = await many<Row>(
     `SELECT v.*, p.title AS property_title, l.name AS lead_name, pr.full_name AS agent_name
      FROM visits v LEFT JOIN properties p ON p.id = v.property_id
      LEFT JOIN leads l ON l.id = v.lead_id LEFT JOIN profiles pr ON pr.id = v.agent_id
      WHERE v.org_id = ? AND v.property_id = ? ORDER BY v.scheduled_at DESC`,
     [orgId, id],
   ) as Visit[];
-  const documents = many<Row>(
+  const documents = await many<Row>(
     `SELECT d.*, pr.full_name AS uploaded_by_name FROM property_documents d
      LEFT JOIN profiles pr ON pr.id = d.uploaded_by
      WHERE d.org_id = ? AND d.property_id = ? ORDER BY d.created_at DESC`,
     [orgId, id],
   );
-  const jobs = many<Row>(
+  const jobs = await many<Row>(
     `SELECT * FROM ai_jobs WHERE org_id = ? AND property_id = ? ORDER BY created_at DESC LIMIT 20`,
     [orgId, id],
   ) as Job[];
-  return { property, media, content, experience, leads, visits, documents, jobs, completion: computeCompletion(id, orgId) };
+  return { property, media, content, experience, leads, visits, documents, jobs, completion: await computeCompletion(id, orgId) };
 }
 
 export function mapMedia(row: Row): PropertyMedia {
@@ -491,16 +514,16 @@ export function mapExperience(row: Row): Experience {
 }
 
 /** Public-facing lookup: only published experiences are resolvable. */
-export function getPublicExperience(slug: string) {
-  const row = one<Row>(
+export async function getPublicExperience(slug: string) {
+  const row = await one<Row>(
     `SELECT e.*, p.org_id FROM property_experiences e JOIN properties p ON p.id = e.property_id
      WHERE e.slug = ? AND e.status = 'published' AND p.status != 'archived'`,
     [slug],
   );
   if (!row) return null;
-  const property = getProperty(row.org_id, row.property_id);
+  const property = await getProperty(row.org_id, row.property_id);
   if (!property) return null;
-  const org = one<Row>(`SELECT * FROM organizations WHERE id = ?`, [row.org_id]);
-  const experience = mapExperience(row);
+  const org = await one<Row>(`SELECT * FROM organizations WHERE id = ?`, [row.org_id]);
+  const experience = await mapExperience(row);
   return { property, experience, org: org! };
 }

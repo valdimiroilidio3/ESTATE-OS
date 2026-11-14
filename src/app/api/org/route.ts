@@ -12,11 +12,11 @@ export const PATCH = authed(async (req, { session }) => {
   if (!roles.canManageOrg(session.role)) throw forbidden("Apenas administradores podem alterar a organização.");
   const input = await readJson(req, orgSettingsSchema);
   if (input.plan_code && input.plan_code !== session.org.plan_code) {
-    const existing = getSubscription(session.org.id);
+    const existing = await getSubscription(session.org.id);
     if (existing) {
-      run(`UPDATE subscriptions SET plan_code = ? WHERE id = ?`, [input.plan_code, existing.id]);
+      await run(`UPDATE subscriptions SET plan_code = ? WHERE id = ?`, [input.plan_code, existing.id]);
     } else {
-      run(`INSERT INTO subscriptions (id, org_id, plan_code, status, created_at) VALUES (?,?,?,?,?)`, [
+      await run(`INSERT INTO subscriptions (id, org_id, plan_code, status, created_at) VALUES (?,?,?,?,?)`, [
         uid(),
         session.org.id,
         input.plan_code,
@@ -24,7 +24,7 @@ export const PATCH = authed(async (req, { session }) => {
         now(),
       ]);
     }
-    logAudit({
+    await logAudit({
       orgId: session.org.id,
       actorId: session.profile.id,
       action: "org.plan_changed",
@@ -33,13 +33,13 @@ export const PATCH = authed(async (req, { session }) => {
       meta: { from: session.org.plan_code, to: input.plan_code, billing: "not_configured" },
     });
   }
-  updateOrg(session.org.id, {
+  await updateOrg(session.org.id, {
     name: input.name,
     plan_code: input.plan_code,
     branding: input.branding,
     settings: input.settings,
   });
-  logAudit({
+  await logAudit({
     orgId: session.org.id,
     actorId: session.profile.id,
     action: "org.updated",

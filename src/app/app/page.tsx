@@ -14,8 +14,8 @@ export const metadata: Metadata = { title: "Overview" };
 
 export default async function OverviewPage() {
   const session = await requireSessionPage();
-  const data = overview(session.org.id);
-  const covers = listMedia(session.org.id, { kind: "photo", limit: 40 });
+  const data = await overview(session.org.id);
+  const covers = await listMedia(session.org.id, { kind: "photo", limit: 40 });
   const coverFor = (propertyId: string) =>
     covers.find((m) => m.property_id === propertyId && m.is_primary) ??
     covers.find((m) => m.property_id === propertyId);

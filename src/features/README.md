@@ -5,7 +5,7 @@ complexo e regras de negócio reutilizáveis.
 
 A composição atual mantém a lógica de domínio em `src/server` (dados, IA, jobs) e os
 componentes de interface em `src/components/app` e `src/components/public`. Esta pasta
-existe como fronteira explícita: nada aqui deve aceder diretamente a `better-sqlite3` nem
+existe como fronteira explícita: nada aqui deve aceder diretamente ao driver PostgreSQL nem
 depender de `cookies()`.
 
 Regra de extração: um módulo entra em `features/<nome>` quando serve mais do que uma rota

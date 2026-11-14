@@ -11,11 +11,11 @@ export const runtime = "nodejs";
 export const GET = authed(async (req, { session }) => {
   const url = new URL(req.url);
   return json({
-    items: listJobs(session.org.id, {
+    items: await listJobs(session.org.id, {
       propertyId: url.searchParams.get("propertyId") ?? undefined,
       limit: Number(url.searchParams.get("limit") ?? 30),
     }),
-    stats: jobStats(session.org.id),
+    stats: await jobStats(session.org.id),
     catalogue: TASK_TYPES,
   });
 });
@@ -23,10 +23,10 @@ export const GET = authed(async (req, { session }) => {
 export const POST = authed(async (req, { session }) => {
   if (!canEdit(session.role)) throw forbidden("O seu perfil é de leitura.");
   const input = await readJson(req, jobCreateSchema);
-  const property = getProperty(session.org.id, input.property_id);
+  const property = await getProperty(session.org.id, input.property_id);
   if (!property) throw notFound("Imóvel não encontrado.");
-  checkQuota(session.org.id, session.org.plan_code, "ai_jobs_month");
-  const id = enqueueJob({
+  await checkQuota(session.org.id, session.org.plan_code, "ai_jobs_month");
+  const id = await enqueueJob({
     orgId: session.org.id,
     propertyId: input.property_id,
     taskType: input.task_type as TaskType,

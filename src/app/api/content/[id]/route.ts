@@ -9,8 +9,8 @@ export const runtime = "nodejs";
 export const PATCH = authed(async (req, { session, params }) => {
   if (!canEdit(session.role)) throw forbidden("O seu perfil é de leitura.");
   const patch = await readJson(req, contentUpdateSchema);
-  const content = updateContent(session.org.id, params.id, patch, session.profile.id);
-  logAudit({
+  const content = await updateContent(session.org.id, params.id, patch, session.profile.id);
+  await logAudit({
     orgId: session.org.id,
     actorId: session.profile.id,
     action: patch.status === "approved" ? "content.approved" : "content.updated",
@@ -23,6 +23,6 @@ export const PATCH = authed(async (req, { session, params }) => {
 
 export const DELETE = authed(async (_req, { session, params }) => {
   if (!canEdit(session.role)) throw forbidden("O seu perfil é de leitura.");
-  deleteContent(session.org.id, params.id);
+  await deleteContent(session.org.id, params.id);
   return json({ ok: true });
 });

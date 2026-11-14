@@ -19,7 +19,7 @@ estado ou as licenças nunca são inferidos — quando faltam, o sistema diz que
 | Framework | Next.js 15 (App Router, React Server Components) |
 | Linguagem | TypeScript estrito |
 | UI | Tailwind CSS 3 + componentes acessíveis próprios; Geist + Instrument Serif |
-| Persistência | SQLite (`better-sqlite3`) com schema relacional completo e índices |
+| Persistência | PostgreSQL (`pg`) com schema relacional completo e índices |
 | Validação | Zod 4 (contratos partilhados entre cliente e servidor) |
 | IA | Abstração de fornecedor (`src/server/ai/provider.ts`); motor determinístico local como padrão |
 | Jobs assíncronos | Fila em base de dados + scheduler in-process com retry e idempotência |
@@ -68,9 +68,11 @@ ID de outra organização devolve `404`, não `403` — não confirma sequer a e
 
 ### Instância real (caminho por omissão)
 
+Precisa de um PostgreSQL acessível (local, Neon, Supabase ou Vercel Postgres).
+
 ```bash
 npm ci
-cp .env.example .env.local          # gerar APP_SECRET (ver abaixo)
+cp .env.example .env.local          # definir DATABASE_URL e gerar APP_SECRET
 npm run db:init                     # cria o esquema e os planos, sem dados fictícios
 npm run dev                         # http://localhost:3000
 ```
@@ -116,7 +118,7 @@ escritas no código, não aparecem na página de login e não existem numa inst�
 | --- | --- | --- |
 | `APP_SECRET` | sim em produção (≥32 caracteres) | segredo para assinatura das sessões |
 | `NEXT_PUBLIC_APP_URL` | recomendada | base URL para links de partilha, canonical e sitemap |
-| `DATABASE_PATH` | não | caminho do ficheiro SQLite (default `./data/estate.db`) |
+| `DATABASE_URL` | **sim** | ligação PostgreSQL (Neon, Supabase, Vercel Postgres, local) |
 | `AI_PROVIDER` | não | `local` (default) ou `openai` |
 | `OPENAI_API_KEY` | só com `AI_PROVIDER=openai` | chave lida exclusivamente no servidor |
 | `OPENAI_BASE_URL` | não | endpoint compatível com OpenAI |
@@ -158,16 +160,26 @@ npm run db:reset   # apaga e recria a base de dados
 ```bash
 BUILD_STANDALONE=1 npm run build
 cp -r public .next/standalone/ && cp -r .next/static .next/standalone/.next/
-node .next/standalone/server.js      # montar ./data e ./storage como volumes
+node .next/standalone/server.js
 ```
 
 ### Alojamento
 
-A instância usa SQLite (`better-sqlite3`) e armazenamento local em `storage/uploads`. É
-adequada a um servidor único com disco persistente (VPS, contentor com volume, máquina
-própria). **Não é durável em plataformas serverless**: nesse caso é necessário substituir a
-base de dados por Postgres/Turso e os uploads por armazenamento de objetos antes de a
-considerar uma instalação de produção. Ver §7.
+A instância é durável tanto num servidor único como em plataformas serverless:
+
+| Peça | Onde vive | Notas |
+| --- | --- | --- |
+| Dados | PostgreSQL (`DATABASE_URL`) | Neon, Supabase, Vercel Postgres ou instância própria |
+| Uploads | Tabela `blobs` (default em Vercel) ou `storage/uploads` | `STORAGE_DRIVER=db\|fs` |
+| Jobs de IA | Worker in-process despertado pelo pedido | Não exige cron, mas um cron a `/api/health` mantém a fila a andar |
+
+**Vercel:** importar o repositório, definir `DATABASE_URL`, `APP_SECRET` (≥32) e
+`NEXT_PUBLIC_APP_URL`, correr `npm run db:init` uma vez contra a base de produção e abrir
+`/signup` para criar a primeira organização. `vercel.json` já fixa o comando de build e a
+região.
+
+**Servidor único / contentor:** igual, com `STORAGE_DRIVER=fs` se preferir guardar os
+ficheiros em disco e montar `storage/` como volume.
 
 ---
 
@@ -318,7 +330,7 @@ declarado → pedido de visita público → lead no CRM com origem e consentimen
 | 1 | Signup e login funcionam com sessão persistente | ✅ |
 | 2 | Criar e editar imóvel | ✅ |
 | 3 | Upload de fotografias com validação | ✅ |
-| 4 | Dados persistem após recarregar/reiniciar | ✅ (SQLite) |
+| 4 | Dados persistem após recarregar/reiniciar | ✅ (PostgreSQL) |
 | 5 | Gerar conteúdo por integração configurada | ✅ com `AI_PROVIDER=openai`; sem chave usa motor local identificado |
 | 6 | Rever e aprovar conteúdo antes de publicar | ✅ |
 | 7 | Página pública por URL estável | ✅ |
@@ -348,7 +360,8 @@ responsivas; não foi possível executar um browser headless neste ambiente.
 | Mapa real | mapa esquemático servido localmente; sem tiles de terceiros |
 | Análise visual de imagens | heurística por nome/legenda, marcada como sugestão pendente |
 | Purge de retenção | política declarada, sem job agendado |
-| Escala horizontal | better-sqlite3 + worker in-process; adequado a uma instância única |
+| Uploads em base de dados | conveniente e durável, mas guardar imagens em `blobs` custa mais do que object storage; migrar quando o volume crescer |
+| Escala horizontal | PostgreSQL partilhado; o worker de jobs corre in-process em cada instância |
 | Alojamento serverless | **não suportado** sem Postgres/Turso e armazenamento de objetos: o disco local não persiste |
 | Recuperação de palavra-passe | não há envio de email; o pedido é tratado pelo administrador da organização |
 

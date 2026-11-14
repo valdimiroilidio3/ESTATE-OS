@@ -1,8 +1,9 @@
 import type { MetadataRoute } from "next";
 import { many, parseJson, type Row } from "@/server/db";
 
-// Regenerated hourly so newly published experiences enter the index.
-export const revalidate = 3600;
+// Generated per request: a deploy must never fail because the database is
+// unreachable or still empty, and newly published experiences appear at once.
+export const dynamic = "force-dynamic";
 
 
 const base = (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(/\/$/, "");
@@ -11,8 +12,8 @@ const base = (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replac
  * Only genuinely public, published experiences of non-demo organisations are
  * listed. Drafts, archived properties and demo fixtures stay out of the index.
  */
-export default function sitemap(): MetadataRoute.Sitemap {
-  const rows = many<Row>(
+export default async function sitemap(): Promise<MetadataRoute.Sitemap >{
+  const rows = await many<Row>(
     `SELECT e.slug, e.updated_at, o.settings
      FROM property_experiences e
      JOIN properties p ON p.id = e.property_id

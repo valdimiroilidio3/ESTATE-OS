@@ -15,9 +15,9 @@ export default async function LeadsPage({
 }) {
   const session = await requireSessionPage();
   const params = await searchParams;
-  const leads = listLeads(session.org.id, { propertyId: params.propertyId, status: params.status });
-  const stats = leadStats(session.org.id);
-  const members = listMembers(session.org.id);
+  const leads = await listLeads(session.org.id, { propertyId: params.propertyId, status: params.status });
+  const stats = await leadStats(session.org.id);
+  const members = await listMembers(session.org.id);
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-6">

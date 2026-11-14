@@ -1,22 +1,22 @@
 import { many, one, run, uid, now, parseJson, type Row } from "../db";
 import { ApiError } from "../http";
 
-export function getOrCreateConversation(orgId: string, propertyId: string, visitorKey: string) {
-  const existing = one<Row>(
+export async function getOrCreateConversation(orgId: string, propertyId: string, visitorKey: string) {
+  const existing = await one<Row>(
     `SELECT * FROM conversations WHERE org_id = ? AND property_id = ? AND visitor_key = ? ORDER BY last_at DESC LIMIT 1`,
     [orgId, propertyId, visitorKey],
   );
   if (existing) return existing;
   const id = uid();
-  run(
+  await run(
     `INSERT INTO conversations (id, org_id, property_id, visitor_key, channel, review_status, created_at, last_at)
      VALUES (?,?,?,?,?,?,?,?)`,
     [id, orgId, propertyId, visitorKey, "property_assistant", "unreviewed", now(), now()],
   );
-  return one<Row>(`SELECT * FROM conversations WHERE id = ?`, [id])!;
+  return (await one<Row>(`SELECT * FROM conversations WHERE id = ?`, [id]));
 }
 
-export function appendMessage(input: {
+export async function appendMessage(input: {
   orgId: string;
   conversationId: string;
   role: "user" | "assistant";
@@ -25,7 +25,7 @@ export function appendMessage(input: {
   provider?: string;
   grounded?: boolean;
 }) {
-  run(
+  await run(
     `INSERT INTO conversation_messages (id, org_id, conversation_id, role, content, citations, provider, grounded, created_at)
      VALUES (?,?,?,?,?,?,?,?,?)`,
     [
@@ -40,11 +40,11 @@ export function appendMessage(input: {
       now(),
     ],
   );
-  run(`UPDATE conversations SET last_at = ? WHERE id = ?`, [now(), input.conversationId]);
+  await run(`UPDATE conversations SET last_at = ? WHERE id = ?`, [now(), input.conversationId]);
 }
 
-export function listConversations(orgId: string, propertyId?: string) {
-  return many<Row>(
+export async function listConversations(orgId: string, propertyId?: string) {
+  return await many<Row>(
     `SELECT c.*, p.title AS property_title,
        (SELECT count(*) FROM conversation_messages m WHERE m.conversation_id = c.id) AS message_count,
        (SELECT content FROM conversation_messages m WHERE m.conversation_id = c.id ORDER BY created_at DESC LIMIT 1) AS last_message
@@ -55,30 +55,30 @@ export function listConversations(orgId: string, propertyId?: string) {
   );
 }
 
-export function getConversation(orgId: string, id: string) {
-  const convo = one<Row>(
+export async function getConversation(orgId: string, id: string) {
+  const convo = await one<Row>(
     `SELECT c.*, p.title AS property_title FROM conversations c LEFT JOIN properties p ON p.id = c.property_id
      WHERE c.id = ? AND c.org_id = ?`,
     [id, orgId],
   );
   if (!convo) return null;
-  const messages = many<Row>(
+  const messages = (await many<Row>(
     `SELECT * FROM conversation_messages WHERE conversation_id = ? AND org_id = ? ORDER BY created_at ASC`,
     [id, orgId],
-  ).map((m) => ({ ...m, citations: parseJson(m.citations, []) }));
+  )).map((m) => ({ ...m, citations: parseJson(m.citations, []) }));
   return { conversation: convo, messages };
 }
 
-export function setReviewStatus(orgId: string, id: string, status: "unreviewed" | "reviewed" | "flagged") {
-  const convo = one<Row>(`SELECT id FROM conversations WHERE id = ? AND org_id = ?`, [id, orgId]);
+export async function setReviewStatus(orgId: string, id: string, status: "unreviewed" | "reviewed" | "flagged") {
+  const convo = await one<Row>(`SELECT id FROM conversations WHERE id = ? AND org_id = ?`, [id, orgId]);
   if (!convo) throw new ApiError("Conversa inexistente.", 404, "not_found");
-  run(`UPDATE conversations SET review_status = ? WHERE id = ? AND org_id = ?`, [status, id, orgId]);
+  await run(`UPDATE conversations SET review_status = ? WHERE id = ? AND org_id = ?`, [status, id, orgId]);
 }
 
-export function assistantQuality(orgId: string, propertyId?: string) {
+export async function assistantQuality(orgId: string, propertyId?: string) {
   const scope = propertyId ? "AND c.property_id = ?" : "";
   const params = propertyId ? [orgId, propertyId] : [orgId];
-  const rows = many<Row>(
+  const rows = await many<Row>(
     `SELECT m.grounded, count(*) AS c FROM conversation_messages m
      JOIN conversations c ON c.id = m.conversation_id
      WHERE c.org_id = ? AND m.role = 'assistant' ${scope} GROUP BY m.grounded`,

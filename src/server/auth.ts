@@ -27,10 +27,10 @@ export function verifyPassword(password: string, stored: string): boolean {
 
 const hashToken = (token: string) => crypto.createHash("sha256").update(token).digest("hex");
 
-export function createSession(profileId: string, orgId: string): { token: string; expires: Date } {
+export async function createSession(profileId: string, orgId: string): Promise<{ token: string; expires: Date }> {
   const token = crypto.randomBytes(32).toString("base64url");
   const expires = new Date(Date.now() + SESSION_DAYS * 86400_000);
-  run(`INSERT INTO sessions (id, profile_id, org_id, expires_at) VALUES (?, ?, ?, ?)`, [
+  await run(`INSERT INTO sessions (id, profile_id, org_id, expires_at) VALUES (?, ?, ?, ?)`, [
     hashToken(token),
     profileId,
     orgId,
@@ -53,9 +53,9 @@ export function clearSessionCookieName() {
 
 export const getSession = cache(async (): Promise<Session | null> => {
   const jar = await cookies();
-  const token = jar.get(COOKIE)?.value;
+  const token = await jar.get(COOKIE)?.value;
   if (!token) return null;
-  const row = one<Row>(
+  const row = await one<Row>(
     `SELECT s.id AS session_id, s.expires_at,
             p.id AS profile_id, p.email, p.full_name, p.locale, p.avatar_url,
             o.id AS org_id, o.name AS org_name, o.slug AS org_slug, o.plan_code,
@@ -69,7 +69,7 @@ export const getSession = cache(async (): Promise<Session | null> => {
   );
   if (!row) return null;
   if (new Date(row.expires_at).getTime() < Date.now()) {
-    run(`DELETE FROM sessions WHERE id = ?`, [row.session_id]);
+    await run(`DELETE FROM sessions WHERE id = ?`, [row.session_id]);
     return null;
   }
   const profile: Profile = {
@@ -100,14 +100,14 @@ function safeJson(v: unknown): Record<string, unknown> {
 
 export async function destroyCurrentSession() {
   const jar = await cookies();
-  const token = jar.get(COOKIE)?.value;
-  if (token) run(`DELETE FROM sessions WHERE id = ?`, [hashToken(token)]);
+  const token = await jar.get(COOKIE)?.value;
+  if (token) await run(`DELETE FROM sessions WHERE id = ?`, [hashToken(token)]);
 }
 
 export async function authenticate(email: string, password: string) {
-  const row = one<Row>(`SELECT * FROM profiles WHERE lower(email) = lower(?)`, [email]);
+  const row = await one<Row>(`SELECT * FROM profiles WHERE lower(email) = lower(?)`, [email]);
   if (!row || !verifyPassword(password, row.password_hash)) return null;
-  const membership = one<Row>(
+  const membership = await one<Row>(
     `SELECT org_id, role FROM organization_members WHERE profile_id = ? ORDER BY created_at LIMIT 1`,
     [row.id],
   );

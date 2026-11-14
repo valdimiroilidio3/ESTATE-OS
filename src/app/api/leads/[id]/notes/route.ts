@@ -8,13 +8,13 @@ export const runtime = "nodejs";
 export const POST = authed(async (req, { session, params }) => {
   if (!canEdit(session.role)) throw forbidden("O seu perfil é de leitura.");
   const input = await readJson(req, leadNoteSchema);
-  if (!getLead(session.org.id, params.id)) throw notFound("Lead não encontrada.");
-  addLeadEvent({
+  if (!await getLead(session.org.id, params.id)) throw notFound("Lead não encontrada.");
+  await addLeadEvent({
     orgId: session.org.id,
     leadId: params.id,
     type: input.type,
     note: input.note,
     actorId: session.profile.id,
   });
-  return json({ events: listLeadEvents(session.org.id, params.id) }, { status: 201 });
+  return json({ events: await listLeadEvents(session.org.id, params.id) }, { status: 201 });
 });

@@ -10,9 +10,9 @@ export const metadata: Metadata = { title: "Team" };
 
 export default async function TeamPage() {
   const session = await requireSessionPage();
-  const members = listMembers(session.org.id);
-  const invitations = listInvitations(session.org.id);
-  const plan = getPlan(session.org.plan_code);
+  const members = await listMembers(session.org.id);
+  const invitations = await listInvitations(session.org.id);
+  const plan = await getPlan(session.org.plan_code);
   const canManage = session.role === "owner" || session.role === "admin";
 
   return (

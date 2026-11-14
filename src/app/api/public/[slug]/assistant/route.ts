@@ -15,11 +15,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   try {
     const { slug } = await ctx.params;
     enforceRateLimit(req, `assistant:${slug}`, 30, 60 * 60_000);
-    const publicData = getPublicExperience(slug);
+    const publicData = await getPublicExperience(slug);
     if (!publicData) throw notFound("Página não encontrada.");
 
     const settings = parseJson<{ assistantEnabled?: boolean }>(
-      one<Row>(`SELECT settings FROM organizations WHERE id = ?`, [publicData.org.id])?.settings,
+      (await one<Row>(`SELECT settings FROM organizations WHERE id = ?`, [publicData.org.id]))?.settings,
       {},
     );
     if (settings.assistantEnabled === false) {
@@ -39,24 +39,24 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
       setCookie = true;
     }
 
-    const conversation = getOrCreateConversation(publicData.org.id, publicData.property.id, visitorKey);
-    appendMessage({
+    const conversation = await getOrCreateConversation(publicData.org.id, publicData.property.id, visitorKey);
+    await appendMessage({
       orgId: publicData.org.id,
-      conversationId: conversation.id,
+      conversationId: conversation!.id,
       role: "user",
       content: input.message,
     });
-    const answer = answerQuestion(publicData.org.id, publicData.property.id, input.message, "pt");
-    appendMessage({
+    const answer = await answerQuestion(publicData.org.id, publicData.property.id, input.message, "pt");
+    await appendMessage({
       orgId: publicData.org.id,
-      conversationId: conversation.id,
+      conversationId: conversation!.id,
       role: "assistant",
       content: answer.answer,
       citations: answer.citations,
       provider: providerInfo().id,
       grounded: answer.grounded,
     });
-    trackEvent({
+    await trackEvent({
       orgId: publicData.org.id,
       propertyId: publicData.property.id,
       experienceId: publicData.experience.id,
@@ -71,7 +71,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
       grounded: answer.grounded,
       cta: answer.cta,
       intent: answer.intent,
-      suggested: suggestedQuestions(publicData.property.id, publicData.org.id, "pt"),
+      suggested: await suggestedQuestions(publicData.property.id, publicData.org.id, "pt"),
     });
     if (setCookie) {
       response.cookies.set(COOKIE, visitorKey, {

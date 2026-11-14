@@ -13,15 +13,15 @@ const schema = z.object({
 });
 
 export const GET = authed(async (_req, { session }) => {
-  return json({ items: listExperiences(session.org.id) });
+  return json({ items: await listExperiences(session.org.id) });
 });
 
 export const POST = authed(async (req, { session }) => {
   if (!canEdit(session.role)) throw forbidden("O seu perfil é de leitura.");
   const input = await readJson(req, schema);
-  if (!getProperty(session.org.id, input.property_id)) throw notFound("Imóvel não encontrado.");
-  const experience = createExperience(session.org.id, session.profile.id, input.property_id, input.layout);
-  logAudit({
+  if (!await getProperty(session.org.id, input.property_id)) throw notFound("Imóvel não encontrado.");
+  const experience = await createExperience(session.org.id, session.profile.id, input.property_id, input.layout);
+  await logAudit({
     orgId: session.org.id,
     actorId: session.profile.id,
     action: "experience.created",

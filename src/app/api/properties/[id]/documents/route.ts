@@ -6,7 +6,7 @@ import { logAudit } from "@/server/audit";
 export const runtime = "nodejs";
 
 export const GET = authed(async (_req, { session, params }) => {
-  return json({ items: listDocuments(session.org.id, params.id) });
+  return json({ items: await listDocuments(session.org.id, params.id) });
 });
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -29,13 +29,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         ? (access as "private" | "team" | "public")
         : "team",
     });
-    logAudit({
+    await logAudit({
       orgId: session.org.id,
       actorId: session.profile.id,
       action: "document.uploaded",
       entity: "property_document",
-      entityId: doc.id,
-      meta: { property_id: id, access_level: doc.access_level },
+      entityId: doc!.id,
+      meta: { property_id: id, access_level: doc!.access_level },
     });
     return json({ document: doc }, { status: 201 });
   } catch (error) {

@@ -11,8 +11,8 @@ export const GET = authed(async (req, { session }) => {
   const { days } = query.parse(Object.fromEntries(url.searchParams));
   return json({
     period_days: days,
-    summary: analyticsSummary(session.org.id, days),
-    experiences: experienceStats(session.org.id, days),
+    summary: await analyticsSummary(session.org.id, days),
+    experiences: await experienceStats(session.org.id, days),
     definitions: {
       page_views: "Eventos page_view deduplicados por sessão durante 30 minutos.",
       cta_clicks: "Interações com botões principais da experiência pública.",

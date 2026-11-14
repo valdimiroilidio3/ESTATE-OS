@@ -84,11 +84,11 @@ export function knowledgeFromDraft(input: PropertyInput, mediaRows: Row[]): Know
   };
 }
 
-export function stagedMedia(orgId: string, ids: string[]) {
+export async function stagedMedia(orgId: string, ids: string[]) {
   if (!ids.length) return [];
   const placeholders = ids.map(() => "?").join(",");
-  return many<Row>(
+  return (await many<Row>(
     `SELECT * FROM property_media WHERE org_id = ? AND property_id IS NULL AND id IN (${placeholders}) ORDER BY sort`,
     [orgId, ...ids],
-  ).map(mapMedia);
+  )).map(mapMedia);
 }

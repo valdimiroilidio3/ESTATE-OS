@@ -15,8 +15,8 @@ export default async function NewExperiencePage({
 }) {
   const session = await requireSessionPage();
   const { propertyId } = await searchParams;
-  const experiences = listExperiences(session.org.id);
-  const properties = listProperties(session.org.id, { limit: 100 }).items;
+  const experiences = await listExperiences(session.org.id);
+  const properties = (await listProperties(session.org.id, { limit: 100 })).items;
   const available = properties.filter((p) => !experiences.some((e) => e.property_id === p.id));
 
   return (

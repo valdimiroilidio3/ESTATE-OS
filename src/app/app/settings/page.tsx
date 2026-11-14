@@ -11,26 +11,26 @@ export const metadata: Metadata = { title: "Settings" };
 
 export default async function SettingsPage() {
   const session = await requireSessionPage();
-  const plans = getPlans(true);
-  const subscription = getSubscription(session.org.id);
-  const plan = getPlan(session.org.plan_code);
-  const isPlatformAdmin = Boolean(one<Row>(`SELECT is_platform_admin FROM profiles WHERE id = ?`, [session.profile.id])?.is_platform_admin);
+  const plans = await getPlans(true);
+  const subscription = await getSubscription(session.org.id);
+  const plan = await getPlan(session.org.plan_code);
+  const isPlatformAdmin = Boolean((await one<Row>(`SELECT is_platform_admin FROM profiles WHERE id = ?`, [session.profile.id]))?.is_platform_admin);
   const canManage = session.role === "owner" || session.role === "admin";
 
   const usage = {
-    properties: Number(one<Row>(`SELECT COUNT(*) AS n FROM properties WHERE org_id = ?`, [session.org.id])?.n ?? 0),
-    seats: Number(one<Row>(`SELECT COUNT(*) AS n FROM organization_members WHERE org_id = ?`, [session.org.id])?.n ?? 0),
+    properties: Number((await one<Row>(`SELECT COUNT(*) AS n FROM properties WHERE org_id = ?`, [session.org.id]))?.n ?? 0),
+    seats: Number((await one<Row>(`SELECT COUNT(*) AS n FROM organization_members WHERE org_id = ?`, [session.org.id]))?.n ?? 0),
     jobs: Number(
-      one<Row>(`SELECT COUNT(*) AS n FROM ai_jobs WHERE org_id = ? AND created_at >= ?`, [
+      (await one<Row>(`SELECT COUNT(*) AS n FROM ai_jobs WHERE org_id = ? AND created_at >= ?`, [
         session.org.id,
         new Date(Date.now() - 30 * 86400_000).toISOString(),
-      ])?.n ?? 0,
+      ]))?.n ?? 0,
     ),
   };
 
-  const requests = many<Row>(`SELECT * FROM privacy_requests WHERE org_id = ? ORDER BY created_at DESC LIMIT 20`, [session.org.id]);
+  const requests = await many<Row>(`SELECT * FROM privacy_requests WHERE org_id = ? ORDER BY created_at DESC LIMIT 20`, [session.org.id]);
   const audit = canManage
-    ? many<Row>(
+    ? await many<Row>(
         `SELECT a.*, p.full_name AS actor_name FROM audit_logs a LEFT JOIN profiles p ON p.id = a.actor_id
          WHERE a.org_id = ? ORDER BY a.created_at DESC LIMIT 30`,
         [session.org.id],

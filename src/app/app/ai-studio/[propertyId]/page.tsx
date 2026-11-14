@@ -33,15 +33,15 @@ export default async function StudioPropertyPage({
   const session = await requireSessionPage();
   const { propertyId } = await params;
   const { tab = "studio" } = await searchParams;
-  const bundle = getPropertyBundle(session.org.id, propertyId);
+  const bundle = await getPropertyBundle(session.org.id, propertyId);
   if (!bundle) notFound();
-  const jobs = listJobs(session.org.id, { propertyId, limit: 30 });
+  const jobs = await listJobs(session.org.id, { propertyId, limit: 30 });
   const provider = providerInfo();
-  const report = verificationReport(session.org.id, propertyId);
-  const conversations = listConversations(session.org.id, propertyId);
-  const quality = assistantQuality(session.org.id, propertyId);
+  const report = await verificationReport(session.org.id, propertyId);
+  const conversations = await listConversations(session.org.id, propertyId);
+  const quality = await assistantQuality(session.org.id, propertyId);
   const settings = parseJson<{ showAssistantTranscripts?: boolean }>(
-    one<Row>(`SELECT settings FROM organizations WHERE id = ?`, [session.org.id])?.settings,
+    (await one<Row>(`SELECT settings FROM organizations WHERE id = ?`, [session.org.id]))?.settings,
     {},
   );
   const readOnly = session.role === "viewer";

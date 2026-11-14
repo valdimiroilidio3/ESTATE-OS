@@ -12,12 +12,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   try {
     const { slug } = await ctx.params;
     enforceRateLimit(req, `contact:${slug}`, 6, 10 * 60_000);
-    const publicData = getPublicExperience(slug);
+    const publicData = await getPublicExperience(slug);
     if (!publicData) throw notFound("Página não encontrada.");
     const input = await readJson(req, contactRequestSchema);
     if (input.website) throw new ApiError("Pedido inválido.", 422, "bot_detected");
 
-    const lead = createLead({
+    const lead = await createLead({
       orgId: publicData.org.id,
       propertyId: publicData.property.id,
       name: input.name,
@@ -31,9 +31,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
     let visitId: string | null = null;
     if (input.kind === "visit") {
       const preference = [input.preferred_date, input.preferred_time].filter(Boolean).join(" ");
-      const visit = createVisit(publicData.org.id, {
+      const visit = await createVisit(publicData.org.id, {
         property_id: publicData.property.id,
-        lead_id: lead.id,
+        lead_id: lead!.id,
         agent_id: null,
         scheduled_at: null,
         timezone: "Europe/Lisbon",
@@ -42,10 +42,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
           ? `Pedido público. Preferência indicada (por confirmar): ${preference}`
           : "Pedido público sem preferência de data.",
       });
-      visitId = visit.id;
+      visitId = visit!.id;
     }
 
-    trackEvent({
+    await trackEvent({
       orgId: publicData.org.id,
       propertyId: publicData.property.id,
       experienceId: publicData.experience.id,
@@ -55,12 +55,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
       meta: { source: "public_form" },
     });
 
-    logAudit({
+    await logAudit({
       orgId: publicData.org.id,
       actorId: null,
       action: input.kind === "visit" ? "visit.requested" : "lead.created",
       entity: input.kind === "visit" ? "visit" : "lead",
-      entityId: input.kind === "visit" ? visitId : lead.id,
+      entityId: input.kind === "visit" ? visitId : lead!.id,
       meta: { source: "public_page", property_id: publicData.property.id },
       ip: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
     });

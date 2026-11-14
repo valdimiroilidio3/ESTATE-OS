@@ -46,8 +46,8 @@ export function money(cents: number | null, currency: string) {
   }).format(cents / 100);
 }
 
-export function buildKnowledge(orgId: string, propertyId: string): KnowledgeBase {
-  const property = getProperty(orgId, propertyId);
+export async function buildKnowledge(orgId: string, propertyId: string): Promise<KnowledgeBase> {
+  const property = await getProperty(orgId, propertyId);
   if (!property) throw new Error("property not found");
   const specs = property.specs;
   const facts: Fact[] = [];
@@ -91,21 +91,21 @@ export function buildKnowledge(orgId: string, propertyId: string): KnowledgeBase
     );
   }
 
-  const listingRow = one<Row>(
+  const listingRow = await one<Row>(
     `SELECT * FROM property_content WHERE property_id = ? AND kind = 'listing' AND locale = 'pt'
      ORDER BY updated_at DESC LIMIT 1`,
     [propertyId],
   );
-  const approvedRow = one<Row>(
+  const approvedRow = await one<Row>(
     `SELECT * FROM property_content WHERE property_id = ? AND kind = 'listing' AND status = 'approved'
      ORDER BY updated_at DESC LIMIT 1`,
     [propertyId],
   );
   const approvedPhotos =
-    one<{ c: number }>(
+    (await one<{ c: number }>(
       `SELECT count(*) AS c FROM property_media WHERE property_id = ? AND status = 'approved' AND kind = 'photo'`,
       [propertyId],
-    )?.c ?? 0;
+    ))?.c ?? 0;
 
   return {
     property,
@@ -131,14 +131,14 @@ export function factsDigest(kb: KnowledgeBase) {
 }
 
 /** Media-level analysis inputs (approved + pending) for the vision/analysis step. */
-export function mediaInventory(orgId: string, propertyId: string) {
-  return many<Row>(
+export async function mediaInventory(orgId: string, propertyId: string) {
+  return (await many<Row>(
     `SELECT * FROM property_media WHERE org_id = ? AND property_id = ? ORDER BY sort, created_at`,
     [orgId, propertyId],
-  ).map(mapMedia);
+  )).map(mapMedia);
 }
 
-export function orgBranding(orgId: string) {
-  const row = one<Row>(`SELECT branding FROM organizations WHERE id = ?`, [orgId]);
+export async function orgBranding(orgId: string) {
+  const row = await one<Row>(`SELECT branding FROM organizations WHERE id = ?`, [orgId]);
   return parseJson<Record<string, string>>(row?.branding, {});
 }

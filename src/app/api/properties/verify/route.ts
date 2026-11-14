@@ -13,7 +13,7 @@ export const runtime = "nodejs";
  */
 export const POST = authed(async (req, { session }) => {
   const input = await readJson(req, propertyInputSchema);
-  const media = stagedMedia(session.org.id, input.mediaIds);
+  const media = await stagedMedia(session.org.id, input.mediaIds);
   const kb = knowledgeFromDraft(input, media);
   const report = validateProperty(kb, media);
   const preview = generateListing(kb, "pt");

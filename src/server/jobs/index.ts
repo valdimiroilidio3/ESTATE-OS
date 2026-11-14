@@ -63,7 +63,7 @@ export type TaskType = keyof typeof TASK_TYPES;
 
 export type JobRow = Job & { property_title?: string | null; property_reference?: string | null; created_by_name?: string | null };
 
-export function listJobs(orgId: string, opts: { limit?: number; propertyId?: string; status?: string } = {}) {
+export async function listJobs(orgId: string, opts: { limit?: number; propertyId?: string; status?: string } = {}) {
   const where = ["j.org_id = ?"];
   const params: unknown[] = [orgId];
   if (opts.propertyId) {
@@ -74,7 +74,7 @@ export function listJobs(orgId: string, opts: { limit?: number; propertyId?: str
     where.push("j.status = ?");
     params.push(opts.status);
   }
-  const rows = many<Row>(
+  const rows = await many<Row>(
     `SELECT j.*, p.title AS property_title, p.reference AS property_reference, pr.full_name AS created_by_name
      FROM ai_jobs j LEFT JOIN properties p ON p.id = j.property_id
      LEFT JOIN profiles pr ON pr.id = j.created_by
@@ -84,16 +84,16 @@ export function listJobs(orgId: string, opts: { limit?: number; propertyId?: str
   return rows as unknown as JobRow[];
 }
 
-export function getJob(orgId: string, id: string) {
-  return one<Row>(
+export async function getJob(orgId: string, id: string) {
+  return await one<Row>(
     `SELECT j.*, p.title AS property_title FROM ai_jobs j LEFT JOIN properties p ON p.id = j.property_id
      WHERE j.id = ? AND j.org_id = ?`,
     [id, orgId],
   ) as (Job & { property_title?: string }) | undefined;
 }
 
-export function jobStats(orgId: string) {
-  const rows = many<{ status: JobStatus; c: number }>(
+export async function jobStats(orgId: string) {
+  const rows = await many<{ status: JobStatus; c: number }>(
     `SELECT status, count(*) AS c FROM ai_jobs WHERE org_id = ? GROUP BY status`,
     [orgId],
   );
@@ -108,7 +108,7 @@ export function jobStats(orgId: string) {
   return stats;
 }
 
-export function enqueueJob(input: {
+export async function enqueueJob(input: {
   orgId: string;
   propertyId: string | null;
   taskType: TaskType;
@@ -117,7 +117,7 @@ export function enqueueJob(input: {
   maxAttempts?: number;
 }) {
   const id = uid();
-  run(
+  await run(
     `INSERT INTO ai_jobs (id, org_id, property_id, task_type, status, provider, attempts, max_attempts, input, created_by, created_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
     [
@@ -152,12 +152,12 @@ async function executeJob(job: Row): Promise<{
   }
   const locale = jobInput.locale === "en" ? "en" : "pt";
   if (!propertyId) return { status: "failed", error: "Tarefa sem imóvel associado." };
-  const property = getProperty(orgId, propertyId);
+  const property = await getProperty(orgId, propertyId);
   if (!property) return { status: "failed", error: "Imóvel não encontrado para esta organização." };
 
   switch (taskType as TaskType) {
     case "validate_fields": {
-      const report = verificationReport(orgId, propertyId);
+      const report = await verificationReport(orgId, propertyId);
       const errors = report.issues.filter((i) => i.level === "error");
       return {
         status: "completed",
@@ -173,7 +173,7 @@ async function executeJob(job: Row): Promise<{
       };
     }
     case "analyze_media": {
-      const media = mediaInventory(orgId, propertyId);
+      const media = await mediaInventory(orgId, propertyId);
       if (!media.length) {
         return { status: "completed", output: { summary: "Sem ficheiros carregados para analisar.", suggestions: [] } };
       }
@@ -202,7 +202,7 @@ async function executeJob(job: Row): Promise<{
       };
     }
     case "generate_multilingual": {
-      const created = produceMultilingual(orgId, propertyId, createdBy);
+      const created = await produceMultilingual(orgId, propertyId, createdBy);
       return {
         status: "needs_review",
         output: {
@@ -213,7 +213,7 @@ async function executeJob(job: Row): Promise<{
       };
     }
     case "generate_audience_versions": {
-      const created = produceAudience(orgId, propertyId, createdBy);
+      const created = await produceAudience(orgId, propertyId, createdBy);
       return {
         status: "needs_review",
         output: {
@@ -224,14 +224,14 @@ async function executeJob(job: Row): Promise<{
       };
     }
     case "generate_campaign": {
-      const content = produceCampaign(orgId, propertyId, createdBy, locale);
+      const content = await produceCampaign(orgId, propertyId, createdBy, locale);
       return {
         status: "needs_review",
         output: { summary: "Pacote de campanha gerado.", contentId: content.id, provider: "local-rules" },
       };
     }
     case "generate_media_brief": {
-      const content = produceMediaBrief(orgId, propertyId, createdBy, locale);
+      const content = await produceMediaBrief(orgId, propertyId, createdBy, locale);
       return {
         status: "needs_review",
         output: {
@@ -242,14 +242,14 @@ async function executeJob(job: Row): Promise<{
       };
     }
     case "prepare_experience": {
-      const existing = one<Row>(`SELECT id, slug FROM property_experiences WHERE property_id = ? AND org_id = ?`, [
+      const existing = await one<Row>(`SELECT id, slug FROM property_experiences WHERE property_id = ? AND org_id = ?`, [
         propertyId,
         orgId,
       ]);
       if (existing) {
         return { status: "completed", output: { summary: "Experiência já existente.", slug: existing.slug, existing: true } };
       }
-      const experience = createExperience(orgId, createdBy, propertyId, "architectural");
+      const experience = await createExperience(orgId, createdBy, propertyId, "architectural");
       void defaultConfig;
       return {
         status: "completed",
@@ -262,16 +262,16 @@ async function executeJob(job: Row): Promise<{
 }
 
 export async function runJob(jobId: string) {
-  const job = one<Row>(`SELECT * FROM ai_jobs WHERE id = ?`, [jobId]);
+  const job = await one<Row>(`SELECT * FROM ai_jobs WHERE id = ?`, [jobId]);
   if (!job) throw new ApiError("Tarefa inexistente.", 404, "not_found");
   if (job.status === "processing") return;
-  run(`UPDATE ai_jobs SET status = 'processing', started_at = ?, attempts = attempts + 1 WHERE id = ?`, [
+  await run(`UPDATE ai_jobs SET status = 'processing', started_at = ?, attempts = attempts + 1 WHERE id = ?`, [
     now(),
     jobId,
   ]);
   try {
     const result = await executeJob(job);
-    run(
+    await run(
       `UPDATE ai_jobs SET status = ?, output = ?, error = ?, completed_at = ?, provider = ? WHERE id = ?`,
       [
         result.status,
@@ -283,13 +283,13 @@ export async function runJob(jobId: string) {
       ],
     );
     if (job.property_id) {
-      run(
+      await run(
         `UPDATE properties SET status = CASE WHEN status = 'draft' THEN 'in_preparation' ELSE status END, updated_at = ? WHERE id = ? AND org_id = ?`,
         [now(), job.property_id, job.org_id],
       );
-      refreshCompletion(job.property_id, job.org_id);
+      await refreshCompletion(job.property_id, job.org_id);
     }
-    logAudit({
+    await logAudit({
       orgId: job.org_id,
       actorId: job.created_by,
       action: `ai.job.${result.status}`,
@@ -302,11 +302,11 @@ export async function runJob(jobId: string) {
     const attempts = Number(job.attempts) + 1;
     const maxAttempts = Number(job.max_attempts) || 2;
     const willRetry = attempts < maxAttempts && !(error instanceof ApiError && error.status < 500 && error.code !== "provider_unreachable");
-    run(
+    await run(
       `UPDATE ai_jobs SET status = ?, error = ?, completed_at = ?, attempts = ? WHERE id = ?`,
       [willRetry ? "queued" : "failed", message, willRetry ? null : now(), attempts, jobId],
     );
-    logAudit({
+    await logAudit({
       orgId: job.org_id,
       actorId: job.created_by,
       action: "ai.job.failed",
@@ -317,11 +317,11 @@ export async function runJob(jobId: string) {
   }
 }
 
-export function retryJob(orgId: string, jobId: string) {
-  const job = getJob(orgId, jobId);
+export async function retryJob(orgId: string, jobId: string) {
+  const job = await getJob(orgId, jobId);
   if (!job) throw new ApiError("Tarefa inexistente.", 404, "not_found");
   if (job.status !== "failed") throw new ApiError("Apenas tarefas com falha podem ser repetidas.", 409, "invalid_state");
-  run(
+  await run(
     `UPDATE ai_jobs SET status = 'queued', error = NULL, attempts = 0, max_attempts = max_attempts + 1, completed_at = NULL WHERE id = ?`,
     [jobId],
   );
@@ -342,7 +342,7 @@ export async function processQueue(limit = 3) {
   let processed = 0;
   try {
     for (let i = 0; i < limit; i += 1) {
-      const job = one<Row>(
+      const job = await one<Row>(
         `SELECT * FROM ai_jobs WHERE status = 'queued' ORDER BY created_at ASC LIMIT 1`,
       );
       if (!job) break;
@@ -357,7 +357,7 @@ export async function processQueue(limit = 3) {
 
 function kick() {
   setTimeout(() => {
-    void processQueue(2).catch((error) => console.error("[worker] queue error", error));
+    processQueue(2).catch((error) => console.error("[worker] queue error", error));
   }, 50);
 }
 
@@ -367,7 +367,7 @@ export function startWorker() {
   if (globalFlag.__estateWorkerStarted) return;
   globalFlag.__estateWorkerStarted = true;
   workerState.timer = setInterval(() => {
-    void processQueue(2).catch((error) => console.error("[worker] tick error", error));
+    processQueue(2).catch((error) => console.error("[worker] tick error", error));
   }, 4000);
   workerState.timer.unref?.();
   console.log("[worker] ESTATE OS job scheduler started");
@@ -376,22 +376,22 @@ export function startWorker() {
 let bootstrapped = false;
 
 /** Starts the in-process scheduler once per server instance. Called from server components. */
-export function ensureWorker() {
+export async function ensureWorker() {
   if (bootstrapped) return;
   bootstrapped = true;
   const globalFlag = globalThis as any;
   if (globalFlag.__estateWorkerBootstrapped) return;
   globalFlag.__estateWorkerBootstrapped = true;
   try {
-    resetStaleJobs();
+    await resetStaleJobs();
   } catch (error) {
     console.error("[worker] failed to reset stale jobs", error);
   }
   startWorker();
 }
 
-export function resetStaleJobs() {
-  run(
+export async function resetStaleJobs() {
+  await run(
     `UPDATE ai_jobs SET status = 'queued', error = 'Reprocessado após reinício do serviço.' WHERE status = 'processing'`,
   );
 }

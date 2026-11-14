@@ -2,6 +2,9 @@ import { many, one, run, type Row, parseJson } from "./db";
 import type { Plan } from "@/lib/types";
 import { ApiError } from "./http";
 
+/** ISO-8601 lower bound for the monthly AI quota window. */
+export const thirtyDaysAgo = () => new Date(Date.now() - 30 * 86_400_000).toISOString();
+
 export const DEFAULT_PLANS: Omit<Plan, "sort">[] = [
   {
     code: "starter",
@@ -54,9 +57,9 @@ export const DEFAULT_PLANS: Omit<Plan, "sort">[] = [
   },
 ];
 
-export function ensurePlans() {
-  DEFAULT_PLANS.forEach((plan, index) => {
-    run(
+export async function ensurePlans() {
+  for (const [index, plan] of DEFAULT_PLANS.entries()) {
+    await run(
       `INSERT INTO plans (code, name, tagline, price_monthly_cents, currency, limits, features, is_public, sort)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(code) DO NOTHING`,
@@ -72,12 +75,12 @@ export function ensurePlans() {
         index,
       ],
     );
-  });
+  }
 }
 
-export function getPlans(includeHidden = false): Plan[] {
-  ensurePlans();
-  const rows = many<Row>(
+export async function getPlans(includeHidden = false): Promise<Plan[] >{
+  await ensurePlans();
+  const rows = await many<Row>(
     `SELECT * FROM plans ${includeHidden ? "" : "WHERE is_public = 1"} ORDER BY sort, price_monthly_cents`,
   );
   return rows.map((r) => ({
@@ -93,9 +96,9 @@ export function getPlans(includeHidden = false): Plan[] {
   }));
 }
 
-export function getPlan(code: string): Plan | null {
-  ensurePlans();
-  const row = one<Row>(`SELECT * FROM plans WHERE code = ?`, [code]);
+export async function getPlan(code: string): Promise<Plan | null >{
+  await ensurePlans();
+  const row = await one<Row>(`SELECT * FROM plans WHERE code = ?`, [code]);
   if (!row) return null;
   return {
     code: row.code,
@@ -110,11 +113,11 @@ export function getPlan(code: string): Plan | null {
   };
 }
 
-export function updatePlan(code: string, patch: Partial<Pick<Plan, "price_monthly_cents" | "limits" | "features" | "tagline" | "is_public">>) {
-  const existing = getPlan(code);
+export async function updatePlan(code: string, patch: Partial<Pick<Plan, "price_monthly_cents" | "limits" | "features" | "tagline" | "is_public">>) {
+  const existing = await getPlan(code);
   if (!existing) throw new ApiError("Plano inexistente.", 404, "not_found");
-  run(
-    `UPDATE plans SET price_monthly_cents = ?, limits = ?, features = ?, tagline = ?, is_public = ?, updated_at = datetime('now')
+  await run(
+    `UPDATE plans SET price_monthly_cents = ?, limits = ?, features = ?, tagline = ?, is_public = ?, updated_at = ?
      WHERE code = ?`,
     [
       patch.price_monthly_cents ?? existing.price_monthly_cents,
@@ -127,8 +130,8 @@ export function updatePlan(code: string, patch: Partial<Pick<Plan, "price_monthl
   );
 }
 
-export function getSubscription(orgId: string) {
-  const row = one<Row>(`SELECT * FROM subscriptions WHERE org_id = ? ORDER BY created_at DESC LIMIT 1`, [orgId]);
+export async function getSubscription(orgId: string) {
+  const row = await one<Row>(`SELECT * FROM subscriptions WHERE org_id = ? ORDER BY created_at DESC LIMIT 1`, [orgId]);
   if (!row) return null;
   return {
     id: row.id,
@@ -140,29 +143,29 @@ export function getSubscription(orgId: string) {
   };
 }
 
-export function checkQuota(orgId: string, planCode: string, kind: "properties" | "ai_jobs_month" | "seats") {
-  const plan = getPlan(planCode);
+export async function checkQuota(orgId: string, planCode: string, kind: "properties" | "ai_jobs_month" | "seats") {
+  const plan = await getPlan(planCode);
   if (!plan) return;
   const limit = plan.limits[kind];
   if (typeof limit !== "number") return;
   let used = 0;
   if (kind === "properties") {
     used =
-      one<{ c: number }>(
+      (await one<{ c: number }>(
         `SELECT count(*) AS c FROM properties WHERE org_id = ? AND status != 'archived'`,
         [orgId],
-      )?.c ?? 0;
+      ))?.c ?? 0;
   }
   if (kind === "seats") {
     used =
-      one<{ c: number }>(`SELECT count(*) AS c FROM organization_members WHERE org_id = ?`, [orgId])?.c ?? 0;
+      (await one<{ c: number }>(`SELECT count(*) AS c FROM organization_members WHERE org_id = ?`, [orgId]))?.c ?? 0;
   }
   if (kind === "ai_jobs_month") {
     used =
-      one<{ c: number }>(
-        `SELECT count(*) AS c FROM ai_jobs WHERE org_id = ? AND created_at >= datetime('now','-30 day')`,
-        [orgId],
-      )?.c ?? 0;
+      (await one<{ c: number }>(
+        `SELECT count(*) AS c FROM ai_jobs WHERE org_id = ? AND created_at >= ?`,
+        [orgId, thirtyDaysAgo()],
+      ))?.c ?? 0;
   }
   if (used >= limit) {
     throw new ApiError(

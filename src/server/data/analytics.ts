@@ -13,7 +13,7 @@ export const EVENT_TYPES = [
 
 export type EventType = (typeof EVENT_TYPES)[number];
 
-export function trackEvent(input: {
+export async function trackEvent(input: {
   orgId: string;
   propertyId?: string | null;
   experienceId?: string | null;
@@ -23,7 +23,7 @@ export function trackEvent(input: {
   referrer?: string | null;
   meta?: Record<string, unknown>;
 }) {
-  run(
+  await run(
     `INSERT INTO analytics_events (id, org_id, property_id, experience_id, event_type, session_key, path, referrer, meta, created_at)
      VALUES (?,?,?,?,?,?,?,?,?,?)`,
     [
@@ -41,49 +41,52 @@ export function trackEvent(input: {
   );
 }
 
-function rangeFilter(days: number) {
-  return `datetime('now', '-${Math.max(1, Math.min(days, 365))} day')`;
+/** ISO-8601 lower bound for a rolling window; timestamps are stored as ISO text. */
+function sinceDays(days: number) {
+  const span = Math.max(1, Math.min(days, 365));
+  return new Date(Date.now() - span * 86_400_000).toISOString();
 }
 
-export function analyticsSummary(orgId: string, days = 30): AnalyticsSummary {
-  const window = rangeFilter(days);
-  const count = (eventType: string) =>
-    one<{ c: number }>(
-      `SELECT count(*) AS c FROM analytics_events WHERE org_id = ? AND event_type = ? AND created_at >= ${window}`,
-      [orgId, eventType],
-    )?.c ?? 0;
+export async function analyticsSummary(orgId: string, days = 30): Promise<AnalyticsSummary> {
+  // Every window boundary is passed as a parameter: timestamps are ISO-8601 text.
+  const window = sinceDays(days);
+  const count = async (eventType: string) =>
+    (await one<{ c: number }>(
+      `SELECT count(*) AS c FROM analytics_events WHERE org_id = ? AND event_type = ? AND created_at >= ?`,
+      [orgId, eventType, window],
+    ))?.c ?? 0;
 
-  const pageViews = count("page_view");
-  const ctaClicks = count("cta_click");
-  const visitRequests = count("visit_request");
-  const assistantMessages = count("assistant_message");
-  const shares = count("share");
+  const [pageViews, ctaClicks, visitRequests, assistantMessages, shares] = await Promise.all([
+    count("page_view"),
+    count("cta_click"),
+    count("visit_request"),
+    count("assistant_message"),
+    count("share"),
+  ]);
   const leads =
-    one<{ c: number }>(
-      `SELECT count(*) AS c FROM leads WHERE org_id = ? AND created_at >= ${window}`,
-      [orgId],
-    )?.c ?? 0;
+    (await one<{ c: number }>(`SELECT count(*) AS c FROM leads WHERE org_id = ? AND created_at >= ?`, [orgId, window]))
+      ?.c ?? 0;
 
-  const byPropertyRows = many<Row>(
+  const byPropertyRows = await many<Row>(
     `SELECT p.id AS property_id, p.title,
-       (SELECT count(*) FROM analytics_events e WHERE e.property_id = p.id AND e.event_type = 'page_view' AND e.created_at >= ${window}) AS views,
-       (SELECT count(*) FROM analytics_events e WHERE e.property_id = p.id AND e.event_type = 'cta_click' AND e.created_at >= ${window}) AS cta,
-       (SELECT count(*) FROM leads l WHERE l.property_id = p.id AND l.created_at >= ${window}) AS leads,
-       (SELECT count(*) FROM visits v WHERE v.property_id = p.id AND v.created_at >= ${window}) AS visits
+       (SELECT count(*) FROM analytics_events e WHERE e.property_id = p.id AND e.event_type = 'page_view' AND e.created_at >= ?) AS views,
+       (SELECT count(*) FROM analytics_events e WHERE e.property_id = p.id AND e.event_type = 'cta_click' AND e.created_at >= ?) AS cta,
+       (SELECT count(*) FROM leads l WHERE l.property_id = p.id AND l.created_at >= ?) AS leads,
+       (SELECT count(*) FROM visits v WHERE v.property_id = p.id AND v.created_at >= ?) AS visits
      FROM properties p WHERE p.org_id = ? ORDER BY views DESC LIMIT 12`,
-    [orgId],
+    [window, window, window, window, orgId],
   );
 
-  const bySourceRows = many<Row>(
-    `SELECT source, count(*) AS count FROM leads WHERE org_id = ? AND created_at >= ${window}
+  const bySourceRows = await many<Row>(
+    `SELECT source, count(*) AS count FROM leads WHERE org_id = ? AND created_at >= ?
      GROUP BY source ORDER BY count DESC`,
-    [orgId],
+    [orgId, window],
   );
 
-  const dailyRows = many<Row>(
-    `SELECT date(created_at) AS date, event_type, count(*) AS c FROM analytics_events
-     WHERE org_id = ? AND created_at >= datetime('now','-13 day') GROUP BY date(created_at), event_type`,
-    [orgId],
+  const dailyRows = await many<Row>(
+    `SELECT substr(created_at, 1, 10) AS day, event_type, count(*) AS c FROM analytics_events
+     WHERE org_id = ? AND created_at >= ? GROUP BY substr(created_at, 1, 10), event_type`,
+    [orgId, sinceDays(14)],
   );
   const dailyMap = new Map<string, { views: number; leads: number }>();
   for (let i = 13; i >= 0; i -= 1) {
@@ -91,7 +94,7 @@ export function analyticsSummary(orgId: string, days = 30): AnalyticsSummary {
     dailyMap.set(d, { views: 0, leads: 0 });
   }
   dailyRows.forEach((r) => {
-    const bucket = dailyMap.get(r.date);
+    const bucket = dailyMap.get(r.day);
     if (!bucket) return;
     if (r.event_type === "page_view") bucket.views += r.c;
     if (r.event_type === "contact_request" || r.event_type === "visit_request") bucket.leads += r.c;
@@ -121,13 +124,14 @@ export function analyticsSummary(orgId: string, days = 30): AnalyticsSummary {
   };
 }
 
-export function experienceStats(orgId: string, days = 30) {
+export async function experienceStats(orgId: string, days = 30) {
+  const window = sinceDays(days);
   return many<Row>(
     `SELECT e.id, e.slug, e.layout, e.status, p.title,
-       (SELECT count(*) FROM analytics_events a WHERE a.experience_id = e.id AND a.event_type = 'page_view' AND a.created_at >= ${rangeFilter(days)}) AS views,
-       (SELECT count(*) FROM analytics_events a WHERE a.experience_id = e.id AND a.event_type = 'cta_click' AND a.created_at >= ${rangeFilter(days)}) AS cta
+       (SELECT count(*) FROM analytics_events a WHERE a.experience_id = e.id AND a.event_type = 'page_view' AND a.created_at >= ?) AS views,
+       (SELECT count(*) FROM analytics_events a WHERE a.experience_id = e.id AND a.event_type = 'cta_click' AND a.created_at >= ?) AS cta
      FROM property_experiences e JOIN properties p ON p.id = e.property_id
      WHERE e.org_id = ? ORDER BY views DESC`,
-    [orgId],
+    [window, window, orgId],
   );
 }

@@ -13,13 +13,13 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
   ensureWorker();
 
   const newLeads =
-    one<{ c: number }>(`SELECT count(*) AS c FROM leads WHERE org_id = ? AND status = 'new'`, [session.org.id])?.c ?? 0;
+    (await one<{ c: number }>(`SELECT count(*) AS c FROM leads WHERE org_id = ? AND status = 'new'`, [session.org.id]))?.c ?? 0;
   const pendingReviews =
-    one<{ c: number }>(
+    (await one<{ c: number }>(
       `SELECT count(*) AS c FROM ai_jobs WHERE org_id = ? AND status = 'needs_review'`,
       [session.org.id],
-    )?.c ?? 0;
-  const plan = getPlan(session.org.plan_code);
+    ))?.c ?? 0;
+  const plan = await getPlan(session.org.plan_code);
   const demo = Boolean((session.org.settings as Record<string, unknown>).demo);
 
   return (

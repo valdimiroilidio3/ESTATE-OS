@@ -13,15 +13,15 @@ export const metadata: Metadata = { title: "Experience builder" };
 export default async function ExperienceBuilderPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await requireSessionPage();
   const { id } = await params;
-  const row = one<Row>(`SELECT * FROM property_experiences WHERE id = ? AND org_id = ?`, [id, session.org.id]);
+  const row = await one<Row>(`SELECT * FROM property_experiences WHERE id = ? AND org_id = ?`, [id, session.org.id]);
   if (!row) notFound();
   const experience = mapExperience(row);
-  const property = getProperty(session.org.id, experience.property_id);
-  const media = many<Row>(
+  const property = await getProperty(session.org.id, experience.property_id);
+  const media = (await many<Row>(
     `SELECT * FROM property_media WHERE org_id = ? AND property_id = ? AND kind = 'photo' AND status = 'approved' AND is_public = 1
      ORDER BY is_primary DESC, sort, created_at`,
     [session.org.id, experience.property_id],
-  ).map(mapMedia);
+  )).map(mapMedia);
 
   return (
     <div className="mx-auto max-w-[1480px]">

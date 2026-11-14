@@ -9,13 +9,13 @@ export const runtime = "nodejs";
 export const GET = authed(async (req, { session }) => {
   const url = new URL(req.url);
   return json({
-    items: listLeads(session.org.id, {
+    items: await listLeads(session.org.id, {
       q: url.searchParams.get("q") ?? undefined,
       status: url.searchParams.get("status") ?? undefined,
       propertyId: url.searchParams.get("propertyId") ?? undefined,
       ownerId: url.searchParams.get("ownerId") ?? undefined,
     }),
-    stats: leadStats(session.org.id),
+    stats: await leadStats(session.org.id),
   });
 });
 
@@ -31,7 +31,7 @@ const manualSchema = z.object({
 export const POST = authed(async (req, { session }) => {
   if (!canEdit(session.role)) throw forbidden("O seu perfil é de leitura.");
   const input = await readJson(req, manualSchema);
-  const lead = createLead({
+  const lead = await createLead({
     orgId: session.org.id,
     propertyId: input.property_id ?? null,
     name: input.name,
@@ -40,12 +40,12 @@ export const POST = authed(async (req, { session }) => {
     source: input.source,
     message: input.message ?? null,
   });
-  logAudit({
+  await logAudit({
     orgId: session.org.id,
     actorId: session.profile.id,
     action: "lead.created",
     entity: "lead",
-    entityId: lead.id,
+    entityId: lead!.id,
     meta: { source: "manual" },
   });
   return json({ lead }, { status: 201 });

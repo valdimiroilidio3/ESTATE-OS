@@ -9,8 +9,8 @@ export const runtime = "nodejs";
 export const PATCH = authed(async (req, { session, params }) => {
   if (!canEdit(session.role)) throw forbidden("O seu perfil é de leitura.");
   const patch = await readJson(req, visitUpdateSchema);
-  const visit = updateVisit(session.org.id, params.id, patch);
-  logAudit({
+  const visit = await updateVisit(session.org.id, params.id, patch);
+  await logAudit({
     orgId: session.org.id,
     actorId: session.profile.id,
     action: "visit.updated",

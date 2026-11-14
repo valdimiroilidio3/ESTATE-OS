@@ -6,6 +6,7 @@
  * The answer is composed only from retrieved facts. If nothing is retrieved the
  * assistant states that the information is not available.
  */
+import { now } from "../db";
 import { buildKnowledge, type KnowledgeBase } from "./knowledge";
 import { money } from "./knowledge";
 import { getExperience } from "../data/experiences";
@@ -143,11 +144,11 @@ export function retrieve(kb: KnowledgeBase, question: string, limit = 6) {
     .map((entry) => entry.fact);
 }
 
-function consultantContact(orgId: string, propertyId: string) {
-  const experience = getExperience(orgId, propertyId);
-  const contact = experience?.config.contact;
+async function consultantContact(orgId: string, propertyId: string) {
+  const experience = await getExperience(orgId, propertyId);
+  const contact = await experience?.config.contact;
   if (contact && (contact.name || contact.email || contact.phone)) return contact;
-  const branding = one<Row>(`SELECT branding FROM organizations WHERE id = ?`, [orgId])?.branding;
+  const branding = (await one<Row>(`SELECT branding FROM organizations WHERE id = ?`, [orgId]))?.branding;
   try {
     const parsed = JSON.parse(branding ?? "{}");
     if (parsed.email || parsed.phone) return { name: parsed.agencyName ?? "", email: parsed.email ?? "", phone: parsed.phone ?? "", role: "Consultor" };
@@ -162,13 +163,13 @@ const UNKNOWN_PT =
 const UNKNOWN_EN =
   "I don't have that information confirmed in this property's records. Rather than guessing, I can pass your question to the responsible consultant.";
 
-export function answerQuestion(
+export async function answerQuestion(
   orgId: string,
   propertyId: string,
   question: string,
   locale: "pt" | "en" = "pt",
-): AssistantAnswer {
-  const kb = buildKnowledge(orgId, propertyId);
+): Promise<AssistantAnswer >{
+  const kb = await buildKnowledge(orgId, propertyId);
   const q = normalize(question);
   const has = (words: string[]) => words.some((w) => q.includes(normalize(w)));
 
@@ -210,10 +211,10 @@ export function answerQuestion(
   }
 
   if (has(SYNONYMS.visit)) {
-    const schedule = one<Row>(
+    const schedule = await one<Row>(
       `SELECT count(*) AS c FROM visits v JOIN property_experiences e ON e.property_id = v.property_id
-       WHERE v.property_id = ? AND v.status = 'confirmed' AND v.scheduled_at >= datetime('now')`,
-      [propertyId],
+       WHERE v.property_id = ? AND v.status = 'confirmed' AND v.scheduled_at >= ?`,
+      [propertyId, now()],
     );
     return {
       answer:
@@ -228,7 +229,7 @@ export function answerQuestion(
   }
 
   if (has(SYNONYMS.contact)) {
-    const contact = consultantContact(orgId, propertyId);
+    const contact = await consultantContact(orgId, propertyId);
     if (contact) {
       const bits = [contact.name, contact.role, contact.email, contact.phone].filter(Boolean);
       return {
@@ -298,8 +299,8 @@ export function answerQuestion(
   };
 }
 
-export function suggestedQuestions(propertyId: string, orgId: string, locale: "pt" | "en" = "pt") {
-  const kb = buildKnowledge(orgId, propertyId);
+export async function suggestedQuestions(propertyId: string, orgId: string, locale: "pt" | "en" = "pt") {
+  const kb = await buildKnowledge(orgId, propertyId);
   const has = (key: string) => Boolean(kb.byKey[key]);
   const base =
     locale === "pt"

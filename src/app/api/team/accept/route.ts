@@ -7,8 +7,8 @@ export const runtime = "nodejs";
 
 export const POST = authed(async (req, { session }) => {
   const { token } = await readJson(req, z.object({ token: z.string().min(10).max(200) }));
-  const orgId = acceptInvitation(token, session.profile.id);
-  logAudit({
+  const orgId = await acceptInvitation(token, session.profile.id);
+  await logAudit({
     orgId,
     actorId: session.profile.id,
     action: "team.invitation_accepted",

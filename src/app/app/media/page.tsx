@@ -9,8 +9,8 @@ export const metadata: Metadata = { title: "Media Library" };
 
 export default async function MediaPage() {
   const session = await requireSessionPage();
-  const media = listMedia(session.org.id, { limit: 300 });
-  const properties = listProperties(session.org.id, { limit: 100 }).items;
+  const media = await listMedia(session.org.id, { limit: 300 });
+  const properties = (await listProperties(session.org.id, { limit: 100 })).items;
   const pending = media.filter((m) => m.status === "pending").length;
   const published = media.filter((m) => m.is_public).length;
   const photos = media.filter((m) => m.kind === "photo").length;

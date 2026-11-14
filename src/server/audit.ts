@@ -1,7 +1,7 @@
 import { one, run, uid, now, many, type Row } from "./db";
 import type { AuditEntry } from "@/lib/types";
 
-export function logAudit(input: {
+export async function logAudit(input: {
   orgId: string;
   actorId?: string | null;
   action: string;
@@ -10,7 +10,7 @@ export function logAudit(input: {
   meta?: Record<string, unknown>;
   ip?: string | null;
 }) {
-  run(
+  await run(
     `INSERT INTO audit_logs (id, org_id, actor_id, action, entity, entity_id, meta, ip, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
@@ -27,7 +27,7 @@ export function logAudit(input: {
   );
 }
 
-export function listAudit(orgId: string, opts: { limit?: number; entity?: string; entityId?: string } = {}) {
+export async function listAudit(orgId: string, opts: { limit?: number; entity?: string; entityId?: string } = {}) {
   const limit = opts.limit ?? 40;
   const where = ["a.org_id = ?"];
   const params: unknown[] = [orgId];
@@ -39,7 +39,7 @@ export function listAudit(orgId: string, opts: { limit?: number; entity?: string
     where.push("a.entity_id = ?");
     params.push(opts.entityId);
   }
-  const rows = many<Row>(
+  const rows = await many<Row>(
     `SELECT a.*, p.full_name AS actor_name FROM audit_logs a
      LEFT JOIN profiles p ON p.id = a.actor_id
      WHERE ${where.join(" AND ")} ORDER BY a.created_at DESC LIMIT ?`,
@@ -64,6 +64,6 @@ function safe(v: unknown) {
   }
 }
 
-export function auditCount(orgId: string) {
-  return one<{ c: number }>(`SELECT count(*) AS c FROM audit_logs WHERE org_id = ?`, [orgId])?.c ?? 0;
+export async function auditCount(orgId: string) {
+  return (await one<{ c: number }>(`SELECT count(*) AS c FROM audit_logs WHERE org_id = ?`, [orgId]))?.c ?? 0;
 }

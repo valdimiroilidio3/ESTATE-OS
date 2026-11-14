@@ -5,8 +5,7 @@ build
 .env
 .env.local
 storage/uploads
-data/*.db
-data/*.db-*
+data/
 *.log
 .DS_Store
 next-env.d.ts

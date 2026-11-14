@@ -9,8 +9,8 @@ export const runtime = "nodejs";
 export const PATCH = authed(async (req, { session, params }) => {
   if (!canEdit(session.role)) throw forbidden("O seu perfil é de leitura.");
   const patch = await readJson(req, mediaUpdateSchema);
-  const media = updateMedia(session.org.id, params.id, patch);
-  logAudit({
+  const media = await updateMedia(session.org.id, params.id, patch);
+  await logAudit({
     orgId: session.org.id,
     actorId: session.profile.id,
     action: "media.updated",
@@ -23,9 +23,9 @@ export const PATCH = authed(async (req, { session, params }) => {
 
 export const DELETE = authed(async (_req, { session, params }) => {
   if (!canEdit(session.role)) throw forbidden("O seu perfil é de leitura.");
-  if (!getMedia(session.org.id, params.id)) throw notFound("Ficheiro não encontrado.");
-  deleteMedia(session.org.id, params.id);
-  logAudit({
+  if (!await getMedia(session.org.id, params.id)) throw notFound("Ficheiro não encontrado.");
+  await deleteMedia(session.org.id, params.id);
+  await logAudit({
     orgId: session.org.id,
     actorId: session.profile.id,
     action: "media.deleted",

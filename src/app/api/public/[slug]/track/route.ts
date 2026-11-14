@@ -15,11 +15,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   try {
     const { slug } = await ctx.params;
     enforceRateLimit(req, `track:${slug}`, 60, 60 * 60_000);
-    const publicData = getPublicExperience(slug);
+    const publicData = await getPublicExperience(slug);
     if (!publicData) throw notFound("Página não encontrada.");
     const input = await readJson(req, schema);
     if (!EVENT_TYPES.includes(input.event)) return json({ ok: true });
-    trackEvent({
+    await trackEvent({
       orgId: publicData.org.id,
       propertyId: publicData.property.id,
       experienceId: publicData.experience.id,

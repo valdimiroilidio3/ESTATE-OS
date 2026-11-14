@@ -9,8 +9,8 @@ export const runtime = "nodejs";
 export const PATCH = authed(async (req, { session, params }) => {
   if (!roles.canManageOrg(session.role)) throw forbidden("Apenas administradores podem alterar funções.");
   const input = await readJson(req, memberRoleSchema);
-  updateMemberRole(session.org.id, params.profileId, input.role);
-  logAudit({
+  await updateMemberRole(session.org.id, params.profileId, input.role);
+  await logAudit({
     orgId: session.org.id,
     actorId: session.profile.id,
     action: "team.role_changed",
@@ -24,8 +24,8 @@ export const PATCH = authed(async (req, { session, params }) => {
 export const DELETE = authed(async (_req, { session, params }) => {
   if (!roles.canManageOrg(session.role)) throw forbidden("Apenas administradores podem remover membros.");
   if (params.profileId === session.profile.id) throw forbidden("Não pode remover a sua própria conta.");
-  removeMember(session.org.id, params.profileId);
-  logAudit({
+  await removeMember(session.org.id, params.profileId);
+  await logAudit({
     orgId: session.org.id,
     actorId: session.profile.id,
     action: "team.member_removed",

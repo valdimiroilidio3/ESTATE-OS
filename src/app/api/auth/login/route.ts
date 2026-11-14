@@ -14,8 +14,8 @@ export async function POST(req: Request) {
     if (!result) {
       throw new ApiError("Credenciais inválidas.", 401, "invalid_credentials");
     }
-    const { token } = createSession(result.profile.id, result.orgId);
-    logAudit({ orgId: result.orgId, actorId: result.profile.id, action: "auth.login", entity: "session" });
+    const { token } = await createSession(result.profile.id, result.orgId);
+    await logAudit({ orgId: result.orgId, actorId: result.profile.id, action: "auth.login", entity: "session" });
     const res = NextResponse.json({ ok: true, redirect: "/app" });
     res.cookies.set("estate_session", token, sessionCookieOptions);
     return res;

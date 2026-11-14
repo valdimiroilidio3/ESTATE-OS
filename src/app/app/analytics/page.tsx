@@ -17,8 +17,8 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: Pr
   const session = await requireSessionPage();
   const params = await searchParams;
   const days = [7, 30, 90].includes(Number(params.days)) ? Number(params.days) : 30;
-  const data = summary(session.org.id, days);
-  const experiences = experienceStats(session.org.id, days);
+  const data = await summary(session.org.id, days);
+  const experiences = await experienceStats(session.org.id, days);
   const maxViews = Math.max(1, ...data.daily.map((d) => d.views));
   const demo = Boolean((session.org.settings as Record<string, unknown>).demo);
 

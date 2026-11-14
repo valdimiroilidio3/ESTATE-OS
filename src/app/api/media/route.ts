@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 export const GET = authed(async (req, { session }) => {
   const url = new URL(req.url);
   return json({
-    items: listMedia(session.org.id, {
+    items: await listMedia(session.org.id, {
       propertyId: url.searchParams.get("propertyId") ?? undefined,
       kind: url.searchParams.get("kind") ?? undefined,
       status: url.searchParams.get("status") ?? undefined,
@@ -46,7 +46,7 @@ export async function POST(req: Request) {
         }),
       );
     }
-    logAudit({
+    await logAudit({
       orgId: session.org.id,
       actorId: session.profile.id,
       action: "media.uploaded",

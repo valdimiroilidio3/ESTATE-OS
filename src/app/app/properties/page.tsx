@@ -35,8 +35,8 @@ export default async function PropertiesPage({
     limit: 24,
     offset: Number(params.offset ?? 0),
   };
-  const { items, total } = listProperties(session.org.id, query);
-  const media = listMedia(session.org.id, { kind: "photo", limit: 200 });
+  const { items, total } = await listProperties(session.org.id, query);
+  const media = await listMedia(session.org.id, { kind: "photo", limit: 200 });
   const coverFor = (id: string) =>
     media.find((m) => m.property_id === id && m.is_primary) ?? media.find((m) => m.property_id === id);
 

@@ -12,7 +12,7 @@ export default async function SignupPage() {
   const session = await getSession();
   if (session) redirect("/app");
   // A fresh instance has no organisations: this signup creates the first one.
-  const emptyInstance = (one<{ n: number }>(`SELECT count(*) AS n FROM organizations`)?.n ?? 0) === 0;
+  const emptyInstance = ((await one<{ n: number }>(`SELECT count(*) AS n FROM organizations`))?.n ?? 0) === 0;
   return (
     <ToastProvider>
       <AuthShell

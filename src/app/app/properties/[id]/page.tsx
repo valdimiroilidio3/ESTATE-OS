@@ -56,14 +56,14 @@ export default async function PropertyProfilePage({
   const session = await requireSessionPage();
   const { id } = await params;
   const { tab = "overview" } = await searchParams;
-  const bundle = getPropertyBundle(session.org.id, id);
+  const bundle = await getPropertyBundle(session.org.id, id);
   if (!bundle) notFound();
 
   const { property, media, content, experience, leads, visits, documents, completion } = bundle;
-  const jobs = listJobs(session.org.id, { propertyId: id, limit: 30 });
+  const jobs = await listJobs(session.org.id, { propertyId: id, limit: 30 });
   const provider = providerInfo();
-  const audit = listAudit(session.org.id, { entityId: id, limit: 30 });
-  const conversations = listConversations(session.org.id, id);
+  const audit = await listAudit(session.org.id, { entityId: id, limit: 30 });
+  const conversations = await listConversations(session.org.id, id);
   const readOnly = session.role === "viewer";
   const cover = media.find((m) => m.is_primary) ?? media[0];
   const approvedPhotos = media.filter((m) => m.status === "approved").length;

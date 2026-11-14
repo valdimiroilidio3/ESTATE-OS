@@ -1,7 +1,5 @@
-import fs from "node:fs";
-import path from "node:path";
 import { getSession } from "@/server/auth";
-import { getMediaRow, mediaFilePath } from "@/server/data/media";
+import { getMediaRow, readMediaFile } from "@/server/data/media";
 
 export const runtime = "nodejs";
 
@@ -19,7 +17,7 @@ const MIME_FALLBACK: Record<string, string> = {
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  const row = getMediaRow(id);
+  const row = await getMediaRow(id);
   if (!row) return new Response("Not found", { status: 404 });
 
   const isPublic = row.is_public === 1 && row.status === "approved";
@@ -29,10 +27,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       return new Response("Unauthorized", { status: 401 });
     }
   }
-  const file = mediaFilePath(row);
-  if (!file) return new Response("Ficheiro indisponível", { status: 404 });
-  const ext = path.extname(file).replace(".", "").toLowerCase();
-  const buffer = fs.readFileSync(file);
+  const buffer = await readMediaFile(row);
+  if (!buffer) return new Response("Ficheiro indisponível", { status: 404 });
+  const ext = String(row.file_name ?? "").split(".").pop()?.toLowerCase() ?? "";
   return new Response(new Uint8Array(buffer), {
     headers: {
       "content-type": row.mime_type || MIME_FALLBACK[ext] || "application/octet-stream",

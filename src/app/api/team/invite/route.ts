@@ -10,15 +10,15 @@ export const runtime = "nodejs";
 export const POST = authed(async (req, { session }) => {
   if (!roles.canManageOrg(session.role)) throw forbidden("Apenas administradores podem convidar membros.");
   const input = await readJson(req, teamInviteSchema);
-  checkQuota(session.org.id, session.org.plan_code, "seats");
-  const result = inviteMember({
+  await checkQuota(session.org.id, session.org.plan_code, "seats");
+  const result = await inviteMember({
     orgId: session.org.id,
     email: input.email,
     role: input.role,
     title: input.title,
     invitedBy: session.profile.id,
   });
-  logAudit({
+  await logAudit({
     orgId: session.org.id,
     actorId: session.profile.id,
     action: "team.invited",
