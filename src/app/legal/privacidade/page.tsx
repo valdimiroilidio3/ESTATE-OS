@@ -54,9 +54,9 @@ export default function PrivacyPage() {
           backend, validação server-side, limitação de tentativas e registo de auditoria das ações relevantes.
         </p>
         <p className="mt-10 text-[11px] text-graphite-dim">
-          Este documento descreve o comportamento do software em ambiente de demonstração e não constitui
-          aconselhamento jurídico. Antes de utilização comercial, a organização deve validar os textos legais com
-          apoio jurídico.
+          Este documento descreve o comportamento do software e não constitui aconselhamento jurídico. A
+          organização utilizadora é a responsável pelo tratamento perante os titulares dos dados e deve validar
+          estes textos com apoio jurídico antes de os publicar como política própria.
         </p>
       </div>
     </article>

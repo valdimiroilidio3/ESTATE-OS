@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { many, one, run, uid, now, type Row } from "../db";
 import { ApiError } from "../http";
+import { uploadsDir } from "../storage";
 import { mapMedia } from "./properties";
 import type { PropertyMedia } from "@/lib/types";
 
@@ -35,7 +36,8 @@ const EXT: Record<string, string> = {
 };
 
 export function storageRoot() {
-  return path.join(process.cwd(), "storage", "uploads");
+  // Uploads live next to the database, so a configured volume carries both.
+  return uploadsDir();
 }
 
 export function validateUpload(file: File): { kind: "photo" | "floorplan" | "document" | "video"; ext: string } {

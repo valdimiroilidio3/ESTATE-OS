@@ -14,7 +14,7 @@ export default async function LoginPage() {
     <ToastProvider>
       <AuthShell
         title="Entrar no workspace"
-        subtitle="Acesso privado à organização. As credenciais de demonstração estão indicadas abaixo do formulário."
+        subtitle="Acesso privado à sua organização. Cada conta pertence a uma organização e só vê os dados dessa organização."
         image="/media/villa-living.jpg"
         imageAlt="Sala de estar de uma moradia contemporânea"
         caption="“Every property deserves its own digital world.”"

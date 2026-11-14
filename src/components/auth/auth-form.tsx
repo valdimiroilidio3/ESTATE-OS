@@ -7,8 +7,6 @@ import { useToast } from "@/components/ui/client";
 
 type Mode = "login" | "signup";
 
-const DEMO = { email: "helena@estateos.demo", password: "EstateDemo2026!" };
-
 export function AuthForm({ mode }: { mode: Mode }) {
   const router = useRouter();
   const { push } = useToast();
@@ -162,18 +160,15 @@ export function AuthForm({ mode }: { mode: Mode }) {
 
       {mode === "login" ? (
         <>
-          <button
-            type="button"
-            onClick={() => setValues((prev) => ({ ...prev, email: DEMO.email, password: DEMO.password }))}
-            className="w-full border border-dashed border-obsidian/15 px-3 py-2.5 text-[11px] text-graphite-dim transition hover:border-obsidian/30 hover:text-obsidian"
-          >
-            Preencher credenciais de demonstração — helena@estateos.demo
-          </button>
           <p className="text-center text-[11.5px] text-graphite-dim">
             Ainda não tem conta?{" "}
             <Link href="/signup" className="text-obsidian underline decoration-obsidian/30 underline-offset-2">
               Criar organização
             </Link>
+          </p>
+          <p className="text-center text-[10.5px] leading-relaxed text-graphite-dim/80">
+            O acesso é individual. Se perdeu a palavra-passe, o administrador da sua organização pode emitir um novo
+            acesso.
           </p>
         </>
       ) : (

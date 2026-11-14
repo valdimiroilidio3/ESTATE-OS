@@ -1,14 +1,28 @@
 /**
- * Demo seed. Creates two isolated organisations so that multi-tenant isolation
- * can be verified end-to-end, plus a realistic property pipeline.
+ * OPTIONAL demo fixtures — never run in a production database.
  *
- * All records are clearly fictional demonstration data.
+ *   npm run db:demo
+ *
+ * Replaces ALL data with two fictional organisations used to demonstrate the
+ * product and to exercise multi-tenant isolation. Every organisation created
+ * here carries `settings.demo = true`, which is what triggers the "demo" badges
+ * and the noindex rules on public pages.
+ *
+ * A production instance does not need this file: `npm run db:init` creates the
+ * empty schema and the first real signup creates the first organisation.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { db, run, one, uid, now } from "../src/server/db";
 import { hashPassword } from "../src/server/auth";
 import { ensurePlans } from "../src/server/plans";
+
+if (process.env.NODE_ENV === "production" && process.env.ALLOW_DEMO_SEED !== "1") {
+  console.error(
+    "Recusado: db:demo não corre com NODE_ENV=production. Use ALLOW_DEMO_SEED=1 apenas numa base de dados descartável.",
+  );
+  process.exit(1);
+}
 
 function reset() {
   const tables = [

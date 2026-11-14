@@ -363,7 +363,8 @@ export function SettingsPanel({
           <h3 className="pt-2 text-[13px] font-medium">Chaves e integrações</h3>
           <p className="text-[11.5px] leading-relaxed text-graphite-dim">
             As chaves de IA são lidas de variáveis de ambiente no servidor e nunca expostas ao cliente. Sem chave
-            configurada, o sistema funciona em modo demonstrativo identificado e não simula respostas de modelo.
+            configurada, a geração é feita pelo motor determinístico, identificado como tal na interface, e nunca é
+            apresentada como resposta de um modelo.
           </p>
         </div>
       ) : null}

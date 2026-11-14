@@ -10,7 +10,7 @@ export default function TermsPage() {
       <Link href="/"><Wordmark /></Link>
       <h1 className="mt-10 text-[28px] font-light">Termos de utilização</h1>
       <p className="mt-2 font-mono text-[10.5px] uppercase tracking-[0.16em] text-graphite-dim">
-        Ambiente de demonstração
+        Condições de utilização do software
       </p>
       <div className="prose-editorial mt-8">
         <h2 className="mt-8 text-[16px] font-medium">1. Objeto</h2>
@@ -41,8 +41,9 @@ export default function TermsPage() {
         </p>
         <h2 className="mt-8 text-[16px] font-medium">6. Limitação</h2>
         <p>
-          Este software é disponibilizado em ambiente de demonstração, sem garantias de disponibilidade ou de
-          adequação a um fim específico.
+          O software é fornecido “tal como está”. A organização utilizadora é responsável pelos dados que
+          introduz, pelos materiais que publica e pelo cumprimento das obrigações legais aplicáveis à sua atividade
+          de mediação imobiliária. A disponibilidade depende da infraestrutura onde a instância está alojada.
         </p>
       </div>
     </article>

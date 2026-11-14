@@ -4,6 +4,7 @@ import { GeistMono } from "geist/font/mono";
 import "@fontsource/instrument-serif/400.css";
 import "@fontsource/instrument-serif/400-italic.css";
 import "./globals.css";
+import { assertRuntimeConfig } from "@/server/env";
 
 const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
@@ -37,6 +38,8 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  // Fails fast on a misconfigured deployment (e.g. missing APP_SECRET in production).
+  assertRuntimeConfig();
   return (
     <html lang="pt-PT" className={`${GeistSans.variable} ${GeistMono.variable}`}>
       <body className="min-h-screen bg-porcelain antialiased">{children}</body>

@@ -81,6 +81,19 @@ async function main() {
     console.error("Sem cookie de sessão — a abortar.");
     process.exit(1);
   }
+  const health = await call("/api/health");
+  ok("health endpoint reports the database", health.data?.database?.reachable === true, health.text.slice(0, 120));
+  const plans = await call("/api/plans");
+  ok(
+    "plans are served from the backend",
+    Array.isArray(plans.data?.items) && plans.data.items.some((plan) => plan.code === "starter"),
+    plans.text.slice(0, 120),
+  );
+  const landing = await call("/");
+  ok("landing page carries no demo framing", !/demonstração/i.test(landing.text), "texto de demonstração presente");
+  const robots = await call("/robots.txt");
+  ok("robots.txt protects the workspace", robots.status === 200 && /Disallow: \/app/.test(robots.text));
+
   const duplicate = await call("/api/auth/signup", {
     method: "POST",
     body: { fullName: "Teste", email, password, orgName: "Duplicado", acceptTerms: true },
@@ -233,20 +246,30 @@ async function main() {
     ok("analytics derived from tracked events", true);
   }
 
+  // A second organisation is created from scratch so the isolation check never
+  // depends on demo fixtures being present.
   await call("/api/auth/logout", { method: "POST" });
   cookie = "";
-  const other = await call("/api/auth/login", {
+  const tenantB = await call("/api/auth/signup", {
     method: "POST",
-    body: { email: "rui@heritage.demo", password: "EstateDemo2026!" },
+    body: {
+      fullName: "Teste Isolamento",
+      email: `e2e-b-${stamp}@estateos.test`,
+      password,
+      orgName: `E2E Isolamento ${stamp}`,
+      acceptTerms: true,
+    },
   });
-  if (other.status === 200) {
-    const foreign = await call(`/api/properties/${property.id}`);
-    ok("cross-tenant read blocked", foreign.status === 404, String(foreign.status));
-    const foreignWrite = await call(`/api/leads/${lead.id}`, { method: "PATCH", body: { status: "won" } });
-    ok("cross-tenant write blocked", foreignWrite.status === 404, String(foreignWrite.status));
-  } else {
-    ok("second demo tenant available for isolation check", false, "seed não executado?");
-  }
+  ok("second organisation can be created", tenantB.status === 200 || tenantB.status === 201, String(tenantB.status));
+  const foreign = await call(`/api/properties/${property.id}`);
+  ok("cross-tenant read blocked", foreign.status === 404, String(foreign.status));
+  const foreignWrite = await call(`/api/leads/${lead.id}`, { method: "PATCH", body: { status: "won" } });
+  ok("cross-tenant write blocked", foreignWrite.status === 404, String(foreignWrite.status));
+  const foreignList = await call("/api/properties");
+  ok(
+    "tenant B sees none of tenant A's properties",
+    Array.isArray(foreignList.data?.items) && !foreignList.data.items.some((item) => item.id === property.id),
+  );
 
   cookie = "";
   await call("/api/auth/login", { method: "POST", body: { email, password } });

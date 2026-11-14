@@ -5,7 +5,12 @@ import { ArrowRight, ArrowUpRight, Check, Minus } from "lucide-react";
 import { Wordmark, Eyebrow } from "@/components/ui/primitives";
 import { BeforeAfter } from "@/components/marketing/before-after";
 import { getPlans } from "@/server/plans";
+import { featuredExperience } from "@/server/data/experiences";
 import { money } from "@/lib/format";
+
+// The landing page reflects live instance data (featured published experience),
+// so it must render per request instead of being frozen at build time.
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "ESTATE OS — Every property deserves its own digital world",
@@ -102,6 +107,8 @@ const FAQ = [
 
 export default async function LandingPage() {
   const plans = getPlans();
+  const featured = featuredExperience();
+  const exploreHref = featured ? `/p/${featured.slug}` : "/signup";
   return (
     <div className="bg-porcelain">
       <header className="fixed inset-x-0 top-0 z-50 border-b border-obsidian/5 bg-porcelain/80 backdrop-blur-md">
@@ -164,13 +171,14 @@ export default async function LandingPage() {
                 Criar primeiro imóvel
                 <ArrowRight size={15} />
               </Link>
-              <Link href="/p/villa-atlantica-cascais" className="btn btn-lg btn-outline-light">
+              <Link href={exploreHref} className="btn btn-lg btn-outline-light">
                 Explorar uma experiência
               </Link>
             </div>
             <p className="mt-5 max-w-md text-[11px] leading-relaxed text-porcelain/40">
-              Estado da arte da demonstração: conta de demonstração disponível. Nenhum dado de clientes reais é
-              apresentado.
+              {featured
+                ? "Cada experiência publicada é produzida a partir da ficha real do imóvel e aprovada por uma pessoa antes de ir para o ar."
+                : "A instância está pronta. Crie a sua conta, introduza o primeiro imóvel e publique a primeira experiência."}
             </p>
           </div>
 
@@ -248,7 +256,7 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      {/* ───────── experiência demonstrada ───────── */}
+      {/* ───────── página exclusiva ───────── */}
       <section id="experiencia" className="mx-auto max-w-shell px-5 py-24 sm:px-8 sm:py-32">
         <div className="flex flex-wrap items-end justify-between gap-6 border-b border-obsidian/10 pb-6">
           <div>
@@ -257,39 +265,75 @@ export default async function LandingPage() {
               Cada imóvel com o seu próprio mundo digital — publicado apenas quando aprovado.
             </h2>
           </div>
-          <Link href="/p/villa-atlantica-cascais" className="link-underline shrink-0">
-            Abrir experiência de demonstração <ArrowUpRight size={13} />
+          <Link href={exploreHref} className="link-underline shrink-0">
+            {featured ? "Ver a experiência mais recente" : "Criar a minha primeira experiência"} <ArrowUpRight size={13} />
           </Link>
         </div>
 
         <div className="mt-10 grid gap-6 lg:grid-cols-[1.5fr_1fr]">
-          <div className="group relative aspect-[16/11] overflow-hidden bg-stone-soft">
-            <Image
-              src="/media/villa-pool.jpg"
-              alt="Piscina exterior de uma moradia contemporânea em Cascais"
-              fill
-              sizes="(max-width: 1024px) 100vw, 60vw"
-              className="object-cover transition duration-700 ease-editorial group-hover:scale-[1.02]"
-            />
-            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-obsidian/80 to-transparent p-6">
-              <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-porcelain/60">Experiência · Signature</p>
-              <p className="mt-2 font-serif text-3xl text-porcelain">Villa Atlântica</p>
-              <p className="mt-1 text-[12px] text-porcelain/70">Guia, Cascais · 245 m² · 4 quartos · 2 450 000 €</p>
+          {featured ? (
+            <Link
+              href={`/p/${featured.slug}`}
+              className="group relative block aspect-[16/11] overflow-hidden bg-stone-soft"
+            >
+              {featured.cover ? (
+                <Image
+                  src={featured.cover}
+                  alt={featured.title}
+                  fill
+                  sizes="(max-width: 1024px) 100vw, 60vw"
+                  className="object-cover transition duration-700 ease-editorial group-hover:scale-[1.02]"
+                />
+              ) : null}
+              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-obsidian/80 to-transparent p-6">
+                <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-porcelain/60">
+                  Experiência · {featured.layout}
+                </p>
+                <p className="mt-2 font-serif text-3xl text-porcelain">{featured.title}</p>
+                <p className="mt-1 text-[12px] text-porcelain/70">
+                  {[
+                    featured.location,
+                    featured.area ? `${featured.area} m²` : null,
+                    featured.bedrooms ? `${featured.bedrooms} quartos` : null,
+                    featured.price_cents ? money(featured.price_cents, featured.currency) : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+              </div>
+            </Link>
+          ) : (
+            <div className="flex aspect-[16/11] flex-col justify-between border border-dashed border-obsidian/20 p-6">
+              <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-graphite-dim">
+                Ainda sem experiências publicadas
+              </p>
+              <div>
+                <p className="max-w-sm text-[13.5px] leading-relaxed text-graphite">
+                  Uma experiência publicada aparece aqui automaticamente, com os dados reais do imóvel. Nenhuma
+                  página é criada sem aprovação e ação explícita de publicação.
+                </p>
+                <Link href="/signup" className="link-underline mt-4 inline-flex">
+                  Criar a primeira <ArrowRight size={12} />
+                </Link>
+              </div>
             </div>
-          </div>
+          )}
           <div className="grid gap-4">
             <div className="border border-obsidian/10 bg-white p-6">
               <Eyebrow>Property Assistant</Eyebrow>
               <p className="mt-3 text-[13px] leading-relaxed text-graphite">
-                “Qual é a área útil?” — o assistente responde com o valor registado e a fonte. Quando o dado não
-                existe, diz que não sabe, em vez de improvisar.
+                O assistente responde apenas com os dados registados, indicando sempre a origem. Quando a informação
+                não existe na ficha, declara-o e encaminha para o consultor.
               </p>
-              <div className="mt-5 space-y-2 border-t border-obsidian/10 pt-4 font-mono text-[10.5px] leading-relaxed text-graphite-dim">
-                <p className="text-obsidian">› Qual é a área útil?</p>
-                <p>245 m² · fonte: Especificações</p>
-                <p className="text-obsidian">› Qual é a rentabilidade anual?</p>
-                <p>Informação não disponível. Encaminhado para o consultor.</p>
+              <div className="mt-5 space-y-2 border-t border-obsidian/10 pt-4 text-[11px] leading-relaxed text-graphite-dim">
+                <p className="font-mono text-[10.5px]">› Qual é a área útil?</p>
+                <p className="text-graphite">Valor registado · fonte indicada em cada resposta</p>
+                <p className="mt-2 font-mono text-[10.5px]">› Qual é a rentabilidade anual?</p>
+                <p className="text-graphite">Informação não disponível · encaminhado para o consultor</p>
               </div>
+              <p className="mt-4 text-[10px] leading-relaxed text-graphite-dim">
+                Sem projeções de rentabilidade, sem valores estimados, sem dados de outros compradores.
+              </p>
             </div>
             <div className="border border-obsidian/10 bg-white p-6">
               <Eyebrow>Três direcções editoriais</Eyebrow>

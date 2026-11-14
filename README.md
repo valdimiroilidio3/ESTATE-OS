@@ -66,16 +66,39 @@ ID de outra organização devolve `404`, não `403` — não confirma sequer a e
 
 ## 2. Arranque
 
+### Instância real (caminho por omissão)
+
 ```bash
-npm install
-cp .env.example .env.local       # ajustar APP_SECRET
-npm run db:seed                  # cria esquema + dados de demonstração
-npm run dev                      # http://localhost:3000
+npm ci
+cp .env.example .env.local          # gerar APP_SECRET (ver abaixo)
+npm run db:init                     # cria o esquema e os planos, sem dados fictícios
+npm run dev                         # http://localhost:3000
 ```
 
-Requisitos: Node 20+ (testado em Node 22) e ferramentas de build para `better-sqlite3`.
+`npm run db:init` é idempotente e **não insere imóveis, leads ou utilizadores**. A instância
+fica pronta mas vazia. A primeira conta criada em `/signup` define a primeira organização:
+essa conta recebe a função `owner`, o plano `starter` e uma subscrição com estado
+`unconfigured` — nunca é apresentada uma subscrição ativa sem confirmação de pagamento.
 
-### Contas de demonstração
+```bash
+openssl rand -hex 32   # valor para APP_SECRET
+```
+
+Em produção `APP_SECRET` é obrigatório com pelo menos 32 caracteres: a aplicação recusa
+arrancar sem ele (`src/server/env.ts`), em vez de usar um segredo previsível.
+
+### Dados de demonstração (opcional, destrutivo)
+
+```bash
+npm run db:demo        # apaga a base atual e recria com duas organizações fictícias
+```
+
+Só para explorar o produto localmente. O script **recusa correr com `NODE_ENV=production`**
+a menos que se defina `ALLOW_DEMO_SEED=1`, e **apaga os dados existentes**. As organizações
+criadas ficam marcadas com `settings.demo = true`, ficam fora de `sitemap.xml`, recebem
+`noindex` e mostram o aviso de conteúdo fictício. Uma organização real nunca herda esse aviso.
+
+### Contas de demonstração (apenas após `npm run db:demo`)
 
 | Conta | Palavra-passe | Organização | Função |
 | --- | --- | --- | --- |
@@ -83,27 +106,24 @@ Requisitos: Node 20+ (testado em Node 22) e ferramentas de build para `better-sq
 | `tomas@estateos.demo` | `EstateDemo2026!` | Atlântico Prime | agent |
 | `rui@heritage.demo` | `EstateDemo2026!` | Heritage Lisbon | owner (outra organização) |
 
-Página pública de demonstração: `/p/villa-atlantica-cascais`.
-Rascunho privado: `/p/apartamento-chiado-lisboa?preview=1` (requer sessão da organização).
-
-> A organização de demonstração está marcada como tal: páginas públicas mostram um aviso de
-> demonstração, as imagens são ilustrativas, a metadata `robots` é `noindex` e o JSON-LD inclui
-> `disambiguatingDescription`. Não são apresentados testemunhos, clientes, resultados ou
-> certificações fictícias em nenhum ponto do produto.
+Estas credenciais existem apenas na base de dados local criada por `db:demo`. Não estão
+escritas no código, não aparecem na página de login e não existem numa instância criada com
+`db:init`.
 
 ### Variáveis de ambiente
 
 | Variável | Obrigatória | Descrição |
 | --- | --- | --- |
-| `APP_SECRET` | sim (produção) | segredo para hashing de sessões |
-| `NEXT_PUBLIC_APP_URL` | recomendada | base URL para links de partilha e canonical |
+| `APP_SECRET` | sim em produção (≥32 caracteres) | segredo para assinatura das sessões |
+| `NEXT_PUBLIC_APP_URL` | recomendada | base URL para links de partilha, canonical e sitemap |
 | `DATABASE_PATH` | não | caminho do ficheiro SQLite (default `./data/estate.db`) |
 | `AI_PROVIDER` | não | `local` (default) ou `openai` |
 | `OPENAI_API_KEY` | só com `AI_PROVIDER=openai` | chave lida exclusivamente no servidor |
 | `OPENAI_BASE_URL` | não | endpoint compatível com OpenAI |
-| `OPENAI_TEXT_MODEL` | não | modelo de texto |
-| `OPENAI_VISION_MODEL` | não | modelo de visão (reservado; a análise de imagem local não é visual) |
+| `OPENAI_TEXT_MODEL` | não | modelo de texto (default `gpt-4o-mini`) |
 | `AI_REQUEST_TIMEOUT_MS` | não | timeout do pedido ao fornecedor (default 45s) |
+| `COOKIE_SECURE` | não | força o atributo `Secure` na cookie de sessão |
+| `ALLOW_DEMO_SEED` | não | `1` permite `db:demo` em produção (desaconselhado) |
 
 Sem chave configurada, a interface identifica o **motor determinístico** e nunca simula
 respostas de modelo. Com chave configurada, a geração usa o modelo e mantém as mesmas regras:
@@ -114,14 +134,40 @@ só factos confirmados, falha com fallback para o motor local e registo de uso e
 ```bash
 npm run dev        # servidor de desenvolvimento (0.0.0.0:3000)
 npm run build      # build de produção
-npm run start      # servidor de produção
+npm run start      # servidor de produção (next start)
+BUILD_STANDALONE=1 npm run build   # bundle autónomo para contentores
 npm run typecheck  # tsc --noEmit
 npm run verify     # typecheck + testes unitários
 npm test           # testes unitários (node:test + tsx)
-npm run e2e        # fluxo completo contra um servidor a correr
-npm run db:seed    # dados de demonstração (idempotente para planos)
+npm run e2e        # fluxo completo contra um servidor a correr (não precisa de seed)
+npm run db:init    # esquema + planos, instância vazia (idempotente)
+npm run db:demo    # dados fictícios, destrutivo, bloqueado em produção
 npm run db:reset   # apaga e recria a base de dados
 ```
+
+### Endpoints operacionais
+
+| Rota | Função |
+| --- | --- |
+| `GET /api/health` | estado da base de dados, nº de organizações e modo de IA; `503` se a BD falhar |
+| `/robots.txt` | bloqueia `/app`, `/api`, `/join`, `/login`, `/signup`; permite `/` e `/p/` |
+| `/sitemap.xml` | landing, páginas legais e experiências publicadas de organizações reais |
+
+### Contentor autónomo
+
+```bash
+BUILD_STANDALONE=1 npm run build
+cp -r public .next/standalone/ && cp -r .next/static .next/standalone/.next/
+node .next/standalone/server.js      # montar ./data e ./storage como volumes
+```
+
+### Alojamento
+
+A instância usa SQLite (`better-sqlite3`) e armazenamento local em `storage/uploads`. É
+adequada a um servidor único com disco persistente (VPS, contentor com volume, máquina
+própria). **Não é durável em plataformas serverless**: nesse caso é necessário substituir a
+base de dados por Postgres/Turso e os uploads por armazenamento de objetos antes de a
+considerar uma instalação de produção. Ver §7.
 
 ---
 
@@ -302,7 +348,9 @@ responsivas; não foi possível executar um browser headless neste ambiente.
 | Mapa real | mapa esquemático servido localmente; sem tiles de terceiros |
 | Análise visual de imagens | heurística por nome/legenda, marcada como sugestão pendente |
 | Purge de retenção | política declarada, sem job agendado |
-| Escala horizontal | melhor-sqlite + worker in-process; adequado a uma instância |
+| Escala horizontal | better-sqlite3 + worker in-process; adequado a uma instância única |
+| Alojamento serverless | **não suportado** sem Postgres/Turso e armazenamento de objetos: o disco local não persiste |
+| Recuperação de palavra-passe | não há envio de email; o pedido é tratado pelo administrador da organização |
 
 Sem chaves configuradas, nenhuma operação simula sucesso: ou é executada pelo motor
 determinístico e rotulada, ou está desativada com instruções claras.

@@ -166,3 +166,43 @@ export function toggleSection(config: ExperienceConfig, id: string, enabled: boo
     sections: config.sections.map((s) => (s.id === id ? { ...s, enabled } : s)),
   };
 }
+
+/**
+ * The most recently published, non-demo experience — used by the public landing
+ * page so that it links to something real on this instance instead of a fixture.
+ */
+export function featuredExperience() {
+  const rows = many<Row>(
+    `SELECT e.slug, e.layout, e.updated_at, p.id AS property_id, p.title, p.city, p.location,
+            p.price_cents, p.currency, o.settings
+     FROM property_experiences e
+     JOIN properties p ON p.id = e.property_id
+     JOIN organizations o ON o.id = e.org_id
+     WHERE e.status = 'published' AND p.status != 'archived'
+     ORDER BY e.updated_at DESC LIMIT 10`,
+  );
+  const row = rows.find((item) => !parseJson<{ demo?: boolean }>(item.settings, {}).demo);
+  if (!row) return null;
+
+  const cover = one<Row>(
+    `SELECT id, public_path FROM property_media
+     WHERE property_id = ? AND kind = 'photo' AND status = 'approved' AND is_public = 1
+     ORDER BY is_primary DESC, sort LIMIT 1`,
+    [row.property_id],
+  );
+  const specs = one<Row>(`SELECT usable_area_m2, bedrooms FROM property_specs WHERE property_id = ?`, [
+    row.property_id,
+  ]);
+
+  return {
+    slug: String(row.slug),
+    layout: String(row.layout),
+    title: String(row.title),
+    location: [row.location, row.city].filter(Boolean).join(", "),
+    price_cents: row.price_cents as number | null,
+    currency: String(row.currency ?? "EUR"),
+    area: (specs?.usable_area_m2 as number | null) ?? null,
+    bedrooms: (specs?.bedrooms as number | null) ?? null,
+    cover: cover ? (cover.public_path as string | null) || `/api/media/${cover.id}/file` : null,
+  };
+}
