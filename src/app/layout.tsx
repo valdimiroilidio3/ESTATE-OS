@@ -38,56 +38,69 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  // Validates the environment. Throws in production when APP_SECRET is missing or
-  // too short, because a predictable session secret would be a security failure.
-  const cfg = config();
+  let cfg: ReturnType<typeof config> | null = null;
+  try {
+    // Validates the environment. Throws in production when APP_SECRET is
+    // missing or too short, because a predictable secret is a security failure.
+    cfg = config();
+  } catch (error) {
+    // A misconfigured deployment is shown, not crashed: `next build` must not
+    // fail because a runtime secret is absent, and an operator needs to see
+    // exactly which variable is missing.
+    return <SetupScreen title="Falta a chave da aplicação." detail={(error as Error).message} />;
+  }
 
-  // Without a database the application cannot do anything honest, so every route
-  // gets one screen that says what is missing instead of a stack of 500s.
+  // Without a database the application cannot do anything honest, so every
+  // route gets one screen that says what is missing instead of a stack of 500s.
   if (!cfg.database.configured) {
     return (
-      <html lang="pt-PT" className={`${GeistSans.variable} ${GeistMono.variable}`}>
-        <body className="min-h-screen bg-porcelain antialiased">
-          <main className="mx-auto flex min-h-screen max-w-2xl flex-col justify-center px-6 py-16">
-            <p className="font-mono text-[10.5px] uppercase tracking-[0.18em] text-champagne-deep">
-              Instalação incompleta
-            </p>
-            <h1 className="mt-4 font-serif text-[clamp(1.9rem,4vw,2.8rem)] leading-[1.05] text-obsidian">
-              Falta ligar a base de dados.
-            </h1>
-            <p className="mt-5 text-[14px] leading-relaxed text-graphite">
-              Esta instância do ESTATE OS ainda não tem uma base de dados PostgreSQL configurada. Nenhuma página é
-              servida com dados inventados: até a ligação existir, o produto não arranca.
-            </p>
-            <ol className="mt-8 space-y-4 border-t border-obsidian/10 pt-6 text-[13px] leading-relaxed text-graphite">
-              <li>
-                <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-graphite-dim">01</span>{" "}
-                Crie uma base PostgreSQL (Neon, Supabase, Vercel Postgres ou servidor próprio).
-              </li>
-              <li>
-                <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-graphite-dim">02</span>{" "}
-                Defina <code className="bg-obsidian/5 px-1.5 py-0.5">DATABASE_URL</code>,{" "}
-                <code className="bg-obsidian/5 px-1.5 py-0.5">APP_SECRET</code> (mínimo 32 caracteres) e{" "}
-                <code className="bg-obsidian/5 px-1.5 py-0.5">NEXT_PUBLIC_APP_URL</code>.
-              </li>
-              <li>
-                <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-graphite-dim">03</span>{" "}
-                Execute <code className="bg-obsidian/5 px-1.5 py-0.5">npm run db:init</code> e abra{" "}
-                <code className="bg-obsidian/5 px-1.5 py-0.5">/signup</code> para criar a primeira organização.
-              </li>
-            </ol>
-            <p className="mt-8 text-[11.5px] text-graphite-dim">
-              Diagnóstico: <a className="underline decoration-obsidian/30 underline-offset-2" href="/api/health">/api/health</a>
-            </p>
-          </main>
-        </body>
-      </html>
+      <SetupScreen
+        title="Falta ligar a base de dados."
+        detail="Esta instância do ESTATE OS ainda não tem uma base de dados PostgreSQL configurada. Nenhuma página é servida com dados inventados: até a ligação existir, o produto não arranca."
+      />
     );
   }
 
   return (
     <html lang="pt-PT" className={`${GeistSans.variable} ${GeistMono.variable}`}>
       <body className="min-h-screen bg-porcelain antialiased">{children}</body>
+    </html>
+  );
+}
+
+function SetupScreen({ title, detail }: { title: string; detail: string }) {
+  return (
+    <html lang="pt-PT" className={`${GeistSans.variable} ${GeistMono.variable}`}>
+      <body className="min-h-screen bg-porcelain antialiased">
+        <main className="mx-auto flex min-h-screen max-w-2xl flex-col justify-center px-6 py-16">
+          <p className="font-mono text-[10.5px] uppercase tracking-[0.18em] text-champagne-deep">
+            Instalação incompleta
+          </p>
+          <h1 className="mt-4 font-serif text-[clamp(1.9rem,4vw,2.8rem)] leading-[1.05] text-obsidian">{title}</h1>
+          <p className="mt-5 text-[14px] leading-relaxed text-graphite">{detail}</p>
+          <ol className="mt-8 space-y-4 border-t border-obsidian/10 pt-6 text-[13px] leading-relaxed text-graphite">
+            <li>
+              <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-graphite-dim">01</span>{" "}
+              Crie uma base PostgreSQL (Neon, Supabase, Vercel Postgres ou servidor próprio).
+            </li>
+            <li>
+              <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-graphite-dim">02</span>{" "}
+              Defina <code className="bg-obsidian/5 px-1.5 py-0.5">DATABASE_URL</code>,{" "}
+              <code className="bg-obsidian/5 px-1.5 py-0.5">APP_SECRET</code> (mínimo 32 caracteres, por exemplo{" "}
+              <code className="bg-obsidian/5 px-1.5 py-0.5">openssl rand -hex 32</code>) e{" "}
+              <code className="bg-obsidian/5 px-1.5 py-0.5">NEXT_PUBLIC_APP_URL</code>.
+            </li>
+            <li>
+              <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-graphite-dim">03</span>{" "}
+              Volte a publicar e abra <code className="bg-obsidian/5 px-1.5 py-0.5">/signup</code> para criar a
+              primeira organização — o esquema é criado no primeiro pedido.
+            </li>
+          </ol>
+          <p className="mt-8 text-[11.5px] text-graphite-dim">
+            Diagnóstico: <a className="underline decoration-obsidian/30 underline-offset-2" href="/api/health">/api/health</a>
+          </p>
+        </main>
+      </body>
     </html>
   );
 }
