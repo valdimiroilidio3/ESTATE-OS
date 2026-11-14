@@ -1,4 +1,5 @@
 import { ApiError } from "../http";
+import { redact } from "../security";
 
 export type ProviderMode = "local" | "openai";
 
@@ -79,12 +80,15 @@ export async function generateText(
     });
     if (!response.ok) {
       const body = await response.text();
-      throw new ApiError(
-        `O fornecedor de IA respondeu com erro ${response.status}.`,
-        502,
-        "provider_error",
-        { status: response.status, body: body.slice(0, 400) },
+      // The upstream body is useful in the server log and never sent to the
+      // browser: providers echo request fragments, keys and internal ids.
+      console.error(
+        "[ai] erro do fornecedor:",
+        JSON.stringify(redact({ status: response.status, body: body.slice(0, 400) })),
       );
+      throw new ApiError(`O fornecedor de IA respondeu com erro ${response.status}.`, 502, "provider_error", {
+        status: response.status,
+      });
     }
     const data = (await response.json()) as {
       choices?: { message?: { content?: string } }[];
@@ -103,9 +107,8 @@ export async function generateText(
     if ((error as Error).name === "AbortError") {
       throw new ApiError("O fornecedor de IA excedeu o tempo de resposta.", 504, "provider_timeout");
     }
-    throw new ApiError("Não foi possível contactar o fornecedor de IA.", 502, "provider_unreachable", {
-      message: (error as Error).message,
-    });
+    console.error("[ai] fornecedor inacessível:", (error as Error).message);
+    throw new ApiError("Não foi possível contactar o fornecedor de IA.", 502, "provider_unreachable");
   } finally {
     clearTimeout(timer);
   }

@@ -296,16 +296,38 @@ plataforma. **Não existe integração de pagamentos**: a subscrição apresenta
 ## 4. Segurança e privacidade
 
 - Sessões em cookie `httpOnly`, `sameSite=lax` (e `secure` em produção); apenas o hash SHA-256
-  do token é guardado.
-- Palavras-passe com `scrypt` (N=16384) e salt por utilizador.
-- Autorização por função em cada endpoint de escrita; `viewer` é sempre só leitura.
-- Verificação de origem em todos os métodos não-GET (defesa CSRF adicional).
-- Rate limiting por IP/página: signup 8/10 min, login 10/5 min, upload 40/min, contacto
-  6/10 min, assistente 30/h, tracking 60/h.
-- Validação Zod no servidor para todos os corpos de pedido.
-- Documentos confidenciais apenas por rota autenticada e verificada por organização.
-- Chaves de IA nunca expostas ao cliente.
-- Audit log de criação, aprovação, publicação, alteração de plano e ações de equipa.
+  do token é guardado. O token é renovado a cada login (sem fixação de sessão) e as sessões
+  expiradas do mesmo perfil são removidas na autenticação.
+- Palavras-passe com `scrypt` (N=16384) e salt por utilizador; política mínima de 10 caracteres
+  com bloqueio de palavras-passe comuns e do próprio email. Um login falhado calcula sempre um
+  hash descartável, para que o tempo de resposta não revele se o email existe.
+- Autorização por função em cada endpoint de escrita; `viewer` é sempre só leitura, inclusive em
+  ações sem efeito visível (fila de jobs, pedidos de privacidade, revisão de conversas).
+- Isolamento por organização em todas as consultas (`org_id`) e verificação explícita nos
+  ficheiros: uma imagem ou documento de outra organização responde `401` e fica registado.
+- Verificação de origem em todos os métodos não-GET, aceitando apenas os hosts do próprio
+  deployment (defesa CSRF adicional ao `SameSite`).
+- Rate limiting por IP: signup 8/10 min, login 10/5 min, upload 40/min, contacto 6/10 min,
+  assistente 30/h, tracking 60/h. O mapa de baldes é limpo periodicamente.
+- Validação Zod no servidor para todos os corpos de pedido; nomes de coluna interpolados em
+  `UPDATE` são validados por `assertIdentifiers` e todas as consultas usam parâmetros ligados.
+- Uploads verificados pelos *magic bytes*: um ficheiro que se declara `image/jpeg` mas contém HTML
+  é recusado com `415`, e os ficheiros são servidos com `nosniff` e CSP `sandbox`.
+- Chaves de IA nunca expostas ao cliente; erros do fornecedor são registados no servidor e o
+  corpo da resposta não chega ao browser.
+- Tokens de convite guardados como hash — o link é emitido (e reemitido) apenas para quem o
+  partilha, e cada emissão invalida o anterior; a aceitação exige a conta com o email convidado.
+- Audit log de criação, aprovação, publicação, alteração de plano e ações de equipa. Eventos que
+  não pertencem a uma organização (logins falhados, acessos negados, rate limiting) vão para
+  `security_events`. Ambos passam por `redact()`, que remove palavras-passe, tokens, cabeçalhos
+  de autorização e credenciais em URLs.
+- Cabeçalhos em todas as respostas: `Content-Security-Policy` (sem scripts de terceiros,
+  `object-src 'none'`, `frame-ancestors 'self'`, `form-action 'self'`), `nosniff`,
+  `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy`, COOP/CORP, HSTS em produção e
+  `Permissions-Policy` a desligar câmara, microfone e geolocalização.
+- `GET /api/health` é público mas só revela disponibilidade; contagens e erros do driver exigem
+  `HEALTH_TOKEN`. O link de convite, o identificador do visitante anónimo do assistente e o
+  JSON-LD da página pública são assinados/escapados (ver `docs/SECURITY.md`).
 
 Limitações conhecidas de privacidade: a retenção é uma **política declarada** (não há purge
 agendada nesta instância) e o tratamento de pedidos RGPD é manual, com registo em
@@ -317,7 +339,7 @@ agendada nesta instância) e o tratamento de pedidos RGPD é manual, com registo
 
 ```bash
 npm run typecheck
-npm test          # 22 testes unitários: factos, copy, FAQ, verificação, schemas, permissões
+npm test          # 34 testes unitários: factos, copy, FAQ, verificação, schemas, permissões e segurança
 npm run e2e       # requer `npm run dev` noutro terminal
 ```
 

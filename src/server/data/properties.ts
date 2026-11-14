@@ -11,6 +11,7 @@ import type {
   Visit,
 } from "@/lib/types";
 import { ApiError } from "../http";
+import { assertIdentifiers } from "../security";
 import type { PropertyInput } from "@/lib/schemas";
 
 const SPEC_FIELDS = [
@@ -340,6 +341,7 @@ export async function updateProperty(orgId: string, id: string, patch: PatchInpu
   if (patch.status !== undefined) columns.status = patch.status;
 
   const entries = Object.entries(columns);
+  assertIdentifiers(entries.map(([k]) => k));
   if (entries.length) {
     await run(
       `UPDATE properties SET ${entries.map(([k]) => `${k} = ?`).join(", ")}, updated_at = ? WHERE id = ? AND org_id = ?`,
@@ -358,6 +360,7 @@ export async function updateProperty(orgId: string, id: string, patch: PatchInpu
     set.features = JSON.stringify(s.features ?? existing.specs?.features ?? []);
     set.views = JSON.stringify(s.views ?? existing.specs?.views ?? []);
     const keys = Object.keys(set);
+    assertIdentifiers(keys);
     await run(
       `UPDATE property_specs SET ${keys.map((k) => `${k} = ?`).join(", ")} WHERE property_id = ? AND org_id = ?`,
       [...keys.map((k) => set[k]), id, orgId],

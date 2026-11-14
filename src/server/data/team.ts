@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { many, one, run, uid, now, type Row } from "../db";
 import { ApiError } from "../http";
 import { hashPassword } from "../auth";
+import { hashToken } from "../security";
 import type { Role } from "@/lib/types";
 
 export async function listMembers(orgId: string) {
@@ -17,7 +18,8 @@ export async function listMembers(orgId: string) {
 
 export async function listInvitations(orgId: string) {
   return await many<Row>(
-    `SELECT i.*, p.full_name AS invited_by_name FROM invitations i LEFT JOIN profiles p ON p.id = i.invited_by
+    `SELECT i.id, i.org_id, i.email, i.role, i.status, i.invited_by, i.created_at,
+            p.full_name AS invited_by_name FROM invitations i LEFT JOIN profiles p ON p.id = i.invited_by
      WHERE i.org_id = ? ORDER BY i.created_at DESC`,
     [orgId],
   );
@@ -32,6 +34,9 @@ export async function inviteMember(input: {
 }) {
   const existingProfile = await one<Row>(`SELECT id, full_name FROM profiles WHERE lower(email) = lower(?)`, [input.email]);
   const token = crypto.randomBytes(24).toString("base64url");
+  // Only the hash is persisted: a database leak must not hand out live
+  // invitation links. The raw token is returned once, to the inviter.
+  const tokenHash = hashToken(token);
   if (existingProfile) {
     const already = await one<Row>(
       `SELECT 1 FROM organization_members WHERE org_id = ? AND profile_id = ?`,
@@ -50,20 +55,46 @@ export async function inviteMember(input: {
   await run(
     `INSERT INTO invitations (id, org_id, email, role, token, status, invited_by, created_at)
      VALUES (?,?,?,?,?,?,?,?)`,
-    [id, input.orgId, input.email, input.role, token, existingProfile ? "accepted" : "pending", input.invitedBy, now()],
+    [id, input.orgId, input.email, input.role, tokenHash, existingProfile ? "accepted" : "pending", input.invitedBy, now()],
   );
   return { id, token, attached: Boolean(existingProfile) };
 }
 
+/**
+ * Issues a new link for a pending invitation.
+ *
+ * Tokens are stored hashed, so an existing link cannot be read back from the
+ * database. Rotating is the safe equivalent: the returned value works once and
+ * any previously shared link stops working.
+ */
+export async function rotateInvitationToken(orgId: string, invitationId: string): Promise<string> {
+  const invite = await one<Row>(
+    `SELECT id, status FROM invitations WHERE id = ? AND org_id = ?`,
+    [invitationId, orgId],
+  );
+  if (!invite) throw new ApiError("Convite inexistente.", 404, "not_found");
+  if (invite.status !== "pending") throw new ApiError("Este convite já foi utilizado.", 409, "invite_closed");
+  const token = crypto.randomBytes(24).toString("base64url");
+  await run(`UPDATE invitations SET token = ? WHERE id = ? AND org_id = ?`, [hashToken(token), invitationId, orgId]);
+  return token;
+}
+
 export async function acceptInvitation(token: string, profileId: string) {
-  const invite = await one<Row>(`SELECT * FROM invitations WHERE token = ? AND status = 'pending'`, [token]);
-  if (!invite) throw new ApiError("Convite inválido ou já utilizado.", 404, "invalid_invite");
-  await run(`INSERT OR IGNORE INTO organization_members (org_id, profile_id, role, created_at) VALUES (?,?,?,?)`, [
-    invite.org_id,
-    profileId,
-    invite.role,
-    now(),
+  const invite = await one<Row>(`SELECT * FROM invitations WHERE token = ? AND status = 'pending'`, [
+    hashToken(token),
   ]);
+  if (!invite) throw new ApiError("Convite inválido ou já utilizado.", 404, "invalid_invite");
+  // The invitation already names the address it was sent to: accepting it from
+  // a different account would let a forwarded link grant a seat.
+  const profile = await one<Row>(`SELECT email FROM profiles WHERE id = ?`, [profileId]);
+  if (!profile || String(profile.email).toLowerCase() !== String(invite.email).toLowerCase()) {
+    throw new ApiError("Este convite foi emitido para outro endereço de email.", 403, "invite_email_mismatch");
+  }
+  await run(
+    `INSERT INTO organization_members (org_id, profile_id, role, created_at) VALUES (?,?,?,?)
+     ON CONFLICT (org_id, profile_id) DO NOTHING`,
+    [invite.org_id, profileId, invite.role, now()],
+  );
   await run(`UPDATE invitations SET status = 'accepted' WHERE id = ?`, [invite.id]);
   return invite.org_id as string;
 }

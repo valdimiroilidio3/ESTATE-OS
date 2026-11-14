@@ -23,6 +23,8 @@ const schema = z.object({
   AI_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(300_000).default(45_000),
   COOKIE_SECURE: z.string().optional(),
   STORAGE_DRIVER: z.enum(["db", "fs"]).optional(),
+  AUTO_MIGRATE: z.string().optional(),
+  HEALTH_TOKEN: z.string().optional(),
 });
 
 function redact(url: string): string {
@@ -58,6 +60,24 @@ function parse() {
     }
   }
 
+  // Production-only warnings. They do not stop the app (a warning beats an
+  // outage) but they name the exact variable that is unsafe.
+  const warnings: string[] = [];
+  if (isProduction) {
+    if (env.COOKIE_SECURE === "false") {
+      warnings.push(
+        "COOKIE_SECURE=false em produção: o cookie de sessão viaja sem Secure. Remova a variável fora de testes locais.",
+      );
+    }
+    if (databaseUrl && /sslmode=disable/i.test(databaseUrl)) {
+      warnings.push("DATABASE_URL com sslmode=disable: a ligação à base de dados não é cifrada.");
+    }
+    if (env.AI_PROVIDER === "openai" && !env.OPENAI_API_KEY) {
+      warnings.push("AI_PROVIDER=openai sem OPENAI_API_KEY: o motor determinístico local é usado.");
+    }
+    for (const warning of warnings) console.warn(`[env] ${warning}`);
+  }
+
   const aiConfigured = env.AI_PROVIDER === "openai" && Boolean(env.OPENAI_API_KEY);
   const storageDriver = env.STORAGE_DRIVER ?? (process.env.VERCEL ? "db" : "fs");
 
@@ -68,7 +88,11 @@ function parse() {
       configured: Boolean(databaseUrl),
       /** Host only: never log credentials. */
       host: databaseUrl ? redact(databaseUrl) : "",
+      /** TLS is expected for managed providers; sockets and localhost are exempt. */
+      encrypted: databaseUrl ? !/sslmode=disable/i.test(databaseUrl) : false,
     },
+    /** Environment problems that were reported but did not stop the process. */
+    warnings,
     storage: {
       driver: storageDriver as "db" | "fs",
       /** Bytes in PostgreSQL survive redeploys; local files do not. */
@@ -84,6 +108,7 @@ function parse() {
       mode: (aiConfigured ? "model" : "deterministic") as "model" | "deterministic",
     },
     cookieSecure: env.COOKIE_SECURE === "false" ? false : isProduction,
+    healthTokenConfigured: Boolean(env.HEALTH_TOKEN && env.HEALTH_TOKEN.length >= 16),
   };
 }
 

@@ -14,6 +14,7 @@ import { VisitForm } from "@/components/public/visit-form";
 import { ShareButton } from "@/components/public/share-button";
 import { PageView } from "@/components/public/page-view";
 import { money, dateShort } from "@/lib/format";
+import { escapeInlineJson } from "@/server/security";
 import type { ExperienceConfig, ExperienceLayout, PropertyMedia } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -216,7 +217,10 @@ export default async function PublicPropertyPage({
 
   return (
     <div className={pageClass}>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: escapeInlineJson(jsonLd) }}
+      />
       <PageView slug={slug} />
 
       {isPreview ? (

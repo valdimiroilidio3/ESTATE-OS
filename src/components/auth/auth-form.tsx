@@ -112,7 +112,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
         <div className="flex items-baseline justify-between">
           <label className="field-label" htmlFor="password">Palavra-passe</label>
           {mode === "login" ? (
-            <span className="text-[10.5px] text-graphite-dim">Mínimo 8 caracteres</span>
+            <span className="text-[10.5px] text-graphite-dim">Mínimo 10 caracteres</span>
           ) : null}
         </div>
         <input
@@ -122,7 +122,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
           value={values.password}
           onChange={(e) => set("password", e.target.value)}
           autoComplete={mode === "login" ? "current-password" : "new-password"}
-          minLength={8}
+          minLength={10}
           required
         />
         {fieldErrors.password ? <p className="field-hint text-red-800">{fieldErrors.password}</p> : null}

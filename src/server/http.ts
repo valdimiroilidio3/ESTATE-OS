@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getSession } from "./auth";
+import { logSecurityEvent } from "./audit";
+import { redact } from "./security";
 import type { Session } from "@/lib/types";
 
 export class ApiError extends Error {
@@ -37,7 +39,9 @@ export function errorResponse(error: unknown) {
       { status: 422 },
     );
   }
-  console.error("[api] unhandled", error);
+  // Never print the raw error: PostgreSQL messages and provider payloads can
+  // carry connection strings, e-mail addresses or request bodies.
+  console.error("[api] unhandled", redact(error instanceof Error ? { name: error.name, message: error.message } : error));
   return NextResponse.json(
     { error: "Ocorreu um erro inesperado. Tente novamente.", code: "internal_error" },
     { status: 500 },
@@ -58,25 +62,74 @@ type Handler = (
 /** Route-handler wrapper: resolves session, validates same-origin writes, normalises errors. */
 export function authed(handler: Handler) {
   return async (req: Request, context: { params: Promise<unknown> }) => {
+    let session: Session | null = null;
     try {
-      const session = await requireSession();
+      session = await requireSession();
       if (req.method !== "GET" && req.method !== "HEAD") guardOrigin(req);
       const params = (context?.params ? await context.params : {}) as Record<string, string>;
       return await handler(req, { session, params });
     } catch (error) {
+      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+        recordDenied(req, error, session);
+      }
       return errorResponse(error);
     }
   };
+}
+
+/**
+ * Records blocked requests (`denied`) once per route and actor per minute, so a
+ * probing client cannot turn the audit trail itself into a write amplifier.
+ */
+const denialLog = ((globalThis as any).__estateDenials = (globalThis as any).__estateDenials ?? new Map<
+  string,
+  number
+>()) as Map<string, number>;
+
+function recordDenied(req: Request, error: ApiError, session: Session | null) {
+  let route = "/";
+  try {
+    route = new URL(req.url).pathname;
+  } catch {
+    // keep the default
+  }
+  const key = `${session?.profile.id ?? "anon"}:${route}:${error.code}`;
+  const now = Date.now();
+  if ((denialLog.get(key) ?? 0) > now - 60_000) return;
+  denialLog.set(key, now);
+  if (denialLog.size > 5_000) denialLog.clear();
+  void logSecurityEvent({
+    orgId: session?.org.id ?? null,
+    actorId: session?.profile.id ?? null,
+    action: "access.denied",
+    outcome: "denied",
+    route,
+    ip: clientIp(req),
+    meta: { code: error.code, message: error.message, method: req.method },
+  });
 }
 
 /** Blocks cross-site form posts (CSRF defence-in-depth on top of SameSite=Lax cookies). */
 export function guardOrigin(req: Request) {
   const origin = req.headers.get("origin");
   if (!origin) return;
-  const host = req.headers.get("host");
+  // Behind a proxy/Vercel the public hostname arrives in x-forwarded-host while
+  // `host` may be the internal one; both are accepted, nothing else is.
+  const hosts = [req.headers.get("x-forwarded-host"), req.headers.get("host")]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => value.split(",")[0]!.trim());
+  const allowed = [process.env.NEXT_PUBLIC_APP_URL, process.env.VERCEL_URL && `https://${process.env.VERCEL_URL}`]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => {
+      try {
+        return new URL(value).host;
+      } catch {
+        return "";
+      }
+    });
   try {
     const originHost = new URL(origin).host;
-    if (!host || originHost !== host) {
+    if (![...hosts, ...allowed].includes(originHost)) {
       throw new ApiError("Origem do pedido não autorizada.", 403, "bad_origin");
     }
   } catch (e) {
@@ -103,6 +156,14 @@ const buckets = ((globalThis as any).__estateRate = (globalThis as any).__estate
 
 export function rateLimit(key: string, limit: number, windowMs: number) {
   const now = Date.now();
+  // Expired buckets are swept opportunistically: an unbounded map keyed by IP
+  // would otherwise grow with every distinct client and leak memory.
+  if (buckets.size > 10_000) {
+    for (const [entryKey, entry] of buckets) {
+      if (entry.resetAt < now) buckets.delete(entryKey);
+    }
+    if (buckets.size > 20_000) buckets.clear();
+  }
   const bucket = buckets.get(key);
   if (!bucket || bucket.resetAt < now) {
     buckets.set(key, { count: 1, resetAt: now + windowMs });
@@ -115,12 +176,23 @@ export function rateLimit(key: string, limit: number, windowMs: number) {
   return { ok: true, remaining: limit - bucket.count, retryAfter: 0 };
 }
 
-export function clientKey(req: Request, scope: string) {
-  const ip =
+/**
+ * Best-effort client address.
+ *
+ * `x-forwarded-for` is only trustworthy when a proxy in front of the app sets
+ * it (Vercel does). A deployment exposed directly to the internet must strip
+ * that header, otherwise a client can rotate it to evade rate limits.
+ */
+export function clientIp(req: Request): string {
+  return (
     req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
     req.headers.get("x-real-ip") ||
-    "local";
-  return `${scope}:${ip}`;
+    "local"
+  );
+}
+
+export function clientKey(req: Request, scope: string) {
+  return `${scope}:${clientIp(req)}`;
 }
 
 export function enforceRateLimit(req: Request, scope: string, limit: number, windowMs: number) {

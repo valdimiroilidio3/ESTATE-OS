@@ -163,9 +163,14 @@ export async function ensureSchema(): Promise<void> {
 
 const globalForSchema = globalThis as unknown as { __estateSchemaReady?: Promise<void> };
 
+/** Tables created by `schema.sql` that a current deployment must have. */
+const REQUIRED_TABLES = ["organizations", "audit_logs", "security_events", "blobs"];
+
 async function schemaPresent(): Promise<boolean> {
-  const result = await pool().query("select to_regclass('public.organizations') as table_name");
-  return Boolean(result.rows[0]?.table_name);
+  const result = await pool().query(
+    `select (${REQUIRED_TABLES.map((name) => `to_regclass('public.${name}') is not null`).join(" and ")}) as present`,
+  );
+  return Boolean(result.rows[0]?.present);
 }
 
 /**
@@ -185,7 +190,7 @@ export function ensureSchemaOnce(): Promise<void> {
       try {
         await client.query("select pg_advisory_lock(914527381)");
         if (!(await schemaPresent())) {
-          console.info("[db] esquema em falta — a aplicar schema.sql");
+          console.info("[db] esquema incompleto — a aplicar schema.sql (apenas CREATE … IF NOT EXISTS)");
           await ensureSchema();
           console.info("[db] esquema aplicado");
         }

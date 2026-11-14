@@ -3,6 +3,7 @@ import { authed, json, readJson, notFound } from "@/server/http";
 import { getConversation, setReviewStatus } from "@/server/data/conversations";
 import { one, parseJson, type Row } from "@/server/db";
 import { forbidden } from "@/server/http";
+import { canEdit } from "@/server/auth";
 import { logAudit } from "@/server/audit";
 
 export const runtime = "nodejs";
@@ -21,6 +22,7 @@ export const GET = authed(async (_req, { session, params }) => {
 });
 
 export const PATCH = authed(async (req, { session, params }) => {
+  if (!canEdit(session.role)) throw forbidden("O seu perfil é de leitura.");
   const input = await readJson(req, conversationReviewSchema);
   await setReviewStatus(session.org.id, params.id, input.review_status);
   await logAudit({

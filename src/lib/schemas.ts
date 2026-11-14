@@ -29,7 +29,7 @@ const requiredNumber = z
 export const signupSchema = z.object({
   fullName: z.string().trim().min(2, "Indique o nome completo.").max(120),
   email: z.string().trim().toLowerCase().email("Email inválido."),
-  password: z.string().min(8, "A palavra-passe deve ter pelo menos 8 caracteres.").max(200),
+  password: z.string().min(10, "A palavra-passe deve ter pelo menos 10 caracteres.").max(200),
   orgName: z.string().trim().min(2, "Indique o nome da organização.").max(120),
   acceptTerms: z.literal(true, { error: "É necessário aceitar os termos." }),
 });
@@ -154,7 +154,12 @@ export const experienceConfigSchema = z.object({
     })
     .optional(),
   theme: z.object({
-    accent: z.string().max(20).default("#C6A77A"),
+    // A strict colour literal: the value reaches a public page, so it must not
+    // be able to carry arbitrary CSS.
+    accent: z
+      .string()
+      .regex(/^#[0-9a-fA-F]{6}$/, "Use um valor hexadecimal, por exemplo #C6A77A.")
+      .default("#C6A77A"),
     tone: z.enum(["light", "dark"]).default("light"),
   }),
 });
@@ -224,7 +229,7 @@ export const orgSettingsSchema = z.object({
     .object({
       agencyName: z.string().max(120).optional(),
       tagline: z.string().max(200).optional(),
-      accent: z.string().max(20).optional(),
+      accent: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Use um valor hexadecimal, ex.: #C6A77A.").optional(),
       phone: z.string().max(60).optional(),
       email: z.string().max(160).optional(),
       website: z.string().max(200).optional(),

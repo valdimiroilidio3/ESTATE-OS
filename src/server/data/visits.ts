@@ -1,5 +1,6 @@
 import { many, one, run, uid, now, type Row } from "../db";
 import { ApiError } from "../http";
+import { assertIdentifiers } from "../security";
 import type { Visit } from "@/lib/types";
 
 export async function listVisits(orgId: string, opts: { from?: string; to?: string; status?: string; propertyId?: string } = {}) {
@@ -119,6 +120,7 @@ export async function updateVisit(
   if (!Object.keys(set).length) return visit;
   set.updated_at = now();
   const keys = Object.keys(set);
+  assertIdentifiers(keys);
   await run(
     `UPDATE visits SET ${keys.map((k) => `${k} = ?`).join(", ")} WHERE id = ? AND org_id = ?`,
     [...keys.map((k) => set[k]), id, orgId],

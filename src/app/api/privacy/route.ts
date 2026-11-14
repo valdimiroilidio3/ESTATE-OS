@@ -1,5 +1,6 @@
 import { privacyRequestSchema } from "@/lib/schemas";
-import { authed, json, readJson } from "@/server/http";
+import { authed, json, readJson, forbidden } from "@/server/http";
+import { roles } from "@/server/auth";
 import { many, run, uid, now, type Row } from "@/server/db";
 import { logAudit } from "@/server/audit";
 
@@ -14,6 +15,7 @@ export const GET = authed(async (_req, { session }) => {
 });
 
 export const POST = authed(async (req, { session }) => {
+  if (!roles.canManageOrg(session.role)) throw forbidden("Só administradores podem registar pedidos de privacidade.");
   const input = await readJson(req, privacyRequestSchema);
   await run(
     `INSERT INTO privacy_requests (id, org_id, email, kind, status, note, created_at) VALUES (?,?,?,?,?,?,?)`,

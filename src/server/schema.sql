@@ -333,6 +333,23 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   created_at    TEXT NOT NULL DEFAULT (to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
 );
 
+-- Security events that cannot be attributed to an organisation (failed logins,
+-- blocked cross-tenant attempts, rate limiting) live here instead of audit_logs,
+-- whose org_id is mandatory. No secrets are stored: see `redact()`.
+CREATE TABLE IF NOT EXISTS security_events (
+  id            TEXT PRIMARY KEY,
+  org_id        TEXT REFERENCES organizations(id) ON DELETE SET NULL,
+  actor_id      TEXT REFERENCES profiles(id) ON DELETE SET NULL,
+  action        TEXT NOT NULL,
+  outcome       TEXT NOT NULL CHECK (outcome IN ('allowed','denied','failed')),
+  route         TEXT,
+  ip            TEXT,
+  meta          TEXT NOT NULL DEFAULT '{}',
+  created_at    TEXT NOT NULL DEFAULT (to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_security_events_created ON security_events(created_at DESC);
+
 CREATE TABLE IF NOT EXISTS privacy_requests (
   id            TEXT PRIMARY KEY,
   org_id        TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,

@@ -1,14 +1,21 @@
 import Link from "next/link";
 import { getSession } from "@/server/auth";
 import { one, type Row } from "@/server/db";
+import { hashToken } from "@/server/security";
 import { AcceptInvite } from "@/components/app/accept-invite";
 import { Wordmark } from "@/components/ui/primitives";
 
 export default async function JoinPage({ searchParams }: { searchParams: Promise<{ token?: string }> }) {
   const { token } = await searchParams;
   const session = await getSession();
+  // Invitation tokens are stored hashed; the URL carries the raw value.
   const invite = token
-    ? await one<Row>(`SELECT i.*, o.name AS org_name FROM invitations i JOIN organizations o ON o.id = i.org_id WHERE i.token = ?`, [token])
+    ? await one<Row>(
+        `SELECT i.id, i.org_id, i.email, i.role, i.status, o.name AS org_name
+           FROM invitations i JOIN organizations o ON o.id = i.org_id
+          WHERE i.token = ? AND i.status = 'pending'`,
+        [hashToken(token)],
+      )
     : undefined;
 
   return (

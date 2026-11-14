@@ -1,5 +1,6 @@
 import { many, one, run, uid, now, parseJson, type Row } from "../db";
 import { ApiError } from "../http";
+import { assertIdentifiers } from "../security";
 import { getProperty, mapExperience } from "./properties";
 import type { Experience, ExperienceConfig, ExperienceLayout } from "@/lib/types";
 import type { ExperienceConfigInput } from "@/lib/schemas";
@@ -138,6 +139,7 @@ export async function updateExperience(
   }
   set.updated_at = now();
   const keys = Object.keys(set);
+  assertIdentifiers(keys);
   await run(
     `UPDATE property_experiences SET ${keys.map((k) => `${k} = ?`).join(", ")} WHERE id = ? AND org_id = ?`,
     [...keys.map((k) => set[k]), id, orgId],

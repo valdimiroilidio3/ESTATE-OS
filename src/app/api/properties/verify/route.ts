@@ -1,5 +1,6 @@
 import { propertyInputSchema } from "@/lib/schemas";
-import { authed, json, readJson } from "@/server/http";
+import { authed, json, readJson, forbidden } from "@/server/http";
+import { canEdit } from "@/server/auth";
 import { knowledgeFromDraft, stagedMedia } from "@/server/ai/draft";
 import { validateProperty, generateListing, buildFaq } from "@/server/ai/engine";
 import { providerInfo } from "@/server/ai/provider";
@@ -12,6 +13,7 @@ export const runtime = "nodejs";
  * confirmation.
  */
 export const POST = authed(async (req, { session }) => {
+  if (!canEdit(session.role)) throw forbidden("O seu perfil é de leitura.");
   const input = await readJson(req, propertyInputSchema);
   const media = await stagedMedia(session.org.id, input.mediaIds);
   const kb = knowledgeFromDraft(input, media);

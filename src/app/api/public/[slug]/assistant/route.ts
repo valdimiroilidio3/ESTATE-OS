@@ -6,6 +6,7 @@ import { answerQuestion, suggestedQuestions } from "@/server/ai/assistant";
 import { appendMessage, getOrCreateConversation } from "@/server/data/conversations";
 import { trackEvent } from "@/server/data/analytics";
 import { providerInfo } from "@/server/ai/provider";
+import { signVisitorKey, verifyVisitorKey } from "@/server/security";
 import { one, type Row, parseJson } from "@/server/db";
 
 export const runtime = "nodejs";
@@ -27,12 +28,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
     }
 
     const input = await readJson(req, assistantMessageSchema);
-    let visitorKey = req.headers
+    const existing = req.headers
       .get("cookie")
       ?.split(";")
       .map((c) => c.trim())
       .find((c) => c.startsWith(`${COOKIE}=`))
-      ?.split("=")[1];
+      ?.slice(COOKIE.length + 1);
+    // Only a signed identifier is trusted: an unsigned or forged value would
+    // let one visitor append messages to another visitor's conversation.
+    let visitorKey = verifyVisitorKey(existing);
     let setCookie = false;
     if (!visitorKey) {
       visitorKey = crypto.randomUUID();
@@ -74,7 +78,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
       suggested: await suggestedQuestions(publicData.property.id, publicData.org.id, "pt"),
     });
     if (setCookie) {
-      response.cookies.set(COOKIE, visitorKey, {
+      response.cookies.set(COOKIE, signVisitorKey(visitorKey), {
         httpOnly: true,
         sameSite: "lax",
         path: "/",

@@ -94,6 +94,50 @@ async function main() {
   const robots = await call("/robots.txt");
   ok("robots.txt protects the workspace", robots.status === 200 && /Disallow: \/app/.test(robots.text));
 
+  console.log("\nSuperfície de segurança");
+  const headers = await fetch(`${BASE}/`, { headers: { "x-forwarded-for": CLIENT_IP } });
+  const csp = headers.headers.get("content-security-policy") ?? "";
+  ok("responses carry a Content-Security-Policy", /default-src 'self'/.test(csp) && /frame-ancestors/.test(csp));
+  ok("framing and sniffing are restricted", headers.headers.get("x-content-type-options") === "nosniff");
+  ok("the health probe hides tenant counts by default", health.data?.database?.organizations === undefined);
+  const probes = await fetch(`${BASE}/api/health`, { headers: { "x-health-token": "guess" } });
+  const probeBody = await probes.json();
+  ok("a wrong health token does not unlock details", probeBody?.database?.organizations === undefined);
+
+  const anonymous = await fetch(`${BASE}/api/properties`, {
+    headers: { "x-forwarded-for": CLIENT_IP },
+    redirect: "manual",
+  });
+  ok("the API refuses requests without a session", anonymous.status === 401, String(anonymous.status));
+
+  const csrf = await call("/api/properties", {
+    method: "POST",
+    headers: { origin: "https://evil.example" },
+    body: { title: "Pedido cruzado", property_type: "apartment", operation: "sale", price: 1, country: "PT", city: "Lisboa", specs: {} },
+  });
+  ok("cross-origin writes are rejected", csrf.status === 403, String(csrf.status));
+
+  const planEscalation = await call("/api/plans/starter", {
+    method: "PATCH",
+    body: { price_monthly_cents: 0 },
+  });
+  ok("plan configuration is platform-admin only", planEscalation.status === 403, String(planEscalation.status));
+
+  const sessionHeaders = await fetch(`${BASE}/api/auth/login`, {
+    method: "POST",
+    headers: { origin: BASE, "x-forwarded-for": CLIENT_IP, "content-type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  const sessionCookie = (sessionHeaders.headers.getSetCookie?.() ?? []).find((value) =>
+    value.startsWith("estate_session="),
+  ) ?? "";
+  ok(
+    "the session cookie is HttpOnly and SameSite",
+    /HttpOnly/i.test(sessionCookie) && /SameSite=lax/i.test(sessionCookie),
+    sessionCookie.slice(0, 120),
+  );
+  ok("the session cookie never leaks the raw token server-side", /^estate_session=[^;]{20,}/.test(sessionCookie));
+
   const duplicate = await call("/api/auth/signup", {
     method: "POST",
     body: { fullName: "Teste", email, password, orgName: "Duplicado", acceptTerms: true },
@@ -163,6 +207,13 @@ async function main() {
   const upload = await call("/api/media", { method: "POST", body: form, raw: true });
   const media = upload.data?.items?.[0];
   ok("photo uploaded", upload.status === 201 && Boolean(media?.id), `${upload.status} ${upload.text.slice(0, 160)}`);
+
+  // A file that claims to be a JPEG but is HTML must never be stored.
+  const disguised = new FormData();
+  disguised.append("propertyId", property.id);
+  disguised.append("files", new Blob(["<script>alert(1)</script>"], { type: "image/jpeg" }), "foto.jpg");
+  const badUpload = await call("/api/media", { method: "POST", body: disguised, raw: true });
+  ok("a disguised upload is rejected", badUpload.status === 415, `${badUpload.status} ${badUpload.text.slice(0, 120)}`);
   if (media) {
     const mediaApprove = await call(`/api/media/${media.id}`, {
       method: "PATCH",

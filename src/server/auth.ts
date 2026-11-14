@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { cookies } from "next/headers";
 import { cache } from "react";
 import { one, run, uid, now, type Row } from "./db";
+import { hashToken, safeEqualHex } from "./security";
 import type { Organization, Profile, Role, Session } from "@/lib/types";
 
 const COOKIE = "estate_session";
@@ -19,17 +20,25 @@ export function verifyPassword(password: string, stored: string): boolean {
     const [scheme, nStr, salt, hash] = stored.split("$");
     if (scheme !== "scrypt") return false;
     const derived = crypto.scryptSync(password, salt, 64, { N: Number(nStr) }).toString("hex");
-    return crypto.timingSafeEqual(Buffer.from(derived, "hex"), Buffer.from(hash, "hex"));
+    return safeEqualHex(derived, hash);
   } catch {
     return false;
   }
 }
 
-const hashToken = (token: string) => crypto.createHash("sha256").update(token).digest("hex");
+/**
+ * A hash of a throwaway password. Verifying against it when the account does
+ * not exist keeps failed logins roughly as slow as real ones, so response time
+ * does not reveal which e-mail addresses are registered.
+ */
+const DUMMY_HASH = hashPassword(crypto.randomBytes(24).toString("hex"));
 
 export async function createSession(profileId: string, orgId: string): Promise<{ token: string; expires: Date }> {
   const token = crypto.randomBytes(32).toString("base64url");
   const expires = new Date(Date.now() + SESSION_DAYS * 86400_000);
+  // A fresh token is issued on every login (no session fixation), and expired
+  // rows for the same profile are dropped instead of accumulating forever.
+  await run(`DELETE FROM sessions WHERE profile_id = ? AND expires_at < ?`, [profileId, now()]);
   await run(`INSERT INTO sessions (id, profile_id, org_id, expires_at) VALUES (?, ?, ?, ?)`, [
     hashToken(token),
     profileId,
@@ -106,7 +115,11 @@ export async function destroyCurrentSession() {
 
 export async function authenticate(email: string, password: string) {
   const row = await one<Row>(`SELECT * FROM profiles WHERE lower(email) = lower(?)`, [email]);
-  if (!row || !verifyPassword(password, row.password_hash)) return null;
+  if (!row) {
+    verifyPassword(password, DUMMY_HASH);
+    return null;
+  }
+  if (!verifyPassword(password, row.password_hash)) return null;
   const membership = await one<Row>(
     `SELECT org_id, role FROM organization_members WHERE profile_id = ? ORDER BY created_at LIMIT 1`,
     [row.id],

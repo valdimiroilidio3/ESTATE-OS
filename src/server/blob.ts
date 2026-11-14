@@ -13,6 +13,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { one, run, uid } from "./db";
+import { isSafeStorageKey } from "./security";
 
 export type StorageDriver = "db" | "fs";
 
@@ -33,6 +34,7 @@ export function newKey(orgId: string, ext: string, prefix = "media"): string {
 }
 
 export async function put(key: string, data: Buffer, mimeType: string, orgId: string | null = null): Promise<void> {
+  if (!isSafeStorageKey(key)) throw new Error("Chave de armazenamento inválida.");
   if (driver() === "db") {
     await run(
       `INSERT INTO blobs (key, org_id, mime_type, size_bytes, data) VALUES (?, ?, ?, ?, ?)
@@ -47,6 +49,7 @@ export async function put(key: string, data: Buffer, mimeType: string, orgId: st
 }
 
 export async function get(key: string): Promise<{ data: Buffer; mimeType: string | null } | null> {
+  if (!isSafeStorageKey(key)) return null;
   if (driver() === "db") {
     const row = await one<{ data: Buffer; mime_type: string }>(`SELECT data, mime_type FROM blobs WHERE key = ?`, [key]);
     if (!row) return null;
@@ -62,6 +65,7 @@ export async function get(key: string): Promise<{ data: Buffer; mimeType: string
 }
 
 export async function remove(key: string): Promise<void> {
+  if (!isSafeStorageKey(key)) return;
   if (driver() === "db") {
     await run(`DELETE FROM blobs WHERE key = ?`, [key]);
     return;

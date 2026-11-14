@@ -23,7 +23,6 @@ type Invitation = {
   email: string;
   role: string;
   status: string;
-  token: string;
   created_at: string;
 };
 
@@ -190,9 +189,16 @@ export function TeamManager({
                 {invitation.status === "pending" ? (
                   <button
                     onClick={async () => {
-                      const url = `${window.location.origin}/join?token=${invitation.token}`;
-                      await navigator.clipboard.writeText(url);
-                      push({ kind: "success", title: "Link de convite copiado" });
+                      // O link não pode ser lido da base de dados: é emitido
+                      // agora e invalida qualquer link partilhado antes.
+                      const res = await fetch(`/api/team/invitations/${invitation.id}/link`, { method: "POST" });
+                      const data = await res.json();
+                      if (!res.ok) {
+                        push({ kind: "error", title: data.error ?? "Não foi possível gerar o link." });
+                        return;
+                      }
+                      await navigator.clipboard.writeText(`${window.location.origin}/join?token=${data.token}`);
+                      push({ kind: "success", title: "Link de convite copiado", description: "O link anterior deixou de funcionar." });
                     }}
                     className="btn btn-sm btn-ghost px-2"
                   >

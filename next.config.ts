@@ -7,11 +7,39 @@ const isProduction = process.env.NODE_ENV === "production";
  * The public experience is framed by the builder preview (same origin), so
  * framing is restricted to SAMEORIGIN rather than blocked entirely.
  */
+/**
+ * Content-Security-Policy.
+ *
+ * Next.js hydrates with inline bootstrap scripts, so `'unsafe-inline'` is
+ * required for scripts until a nonce-based policy is wired through middleware.
+ * Even so, this blocks the realistic attack paths: third-party script loading,
+ * framing by another site, form hijacking and `<base>` rewriting.
+ */
+const csp = [
+  "default-src 'self'",
+  `script-src 'self' 'unsafe-inline'${isProduction ? "" : " 'unsafe-eval'"}`,
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  "connect-src 'self'",
+  "media-src 'self'",
+  "frame-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'self'",
+  ...(isProduction ? ["upgrade-insecure-requests"] : []),
+].join("; ");
+
 const securityHeaders = [
+  { key: "Content-Security-Policy", value: csp },
   { key: "X-Content-Type-Options", value: "nosniff" },
+  // The public experience is framed by the builder preview on the same origin.
   { key: "X-Frame-Options", value: "SAMEORIGIN" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "X-DNS-Prefetch-Control", value: "off" },
+  { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+  { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
   {
     key: "Permissions-Policy",
     value: "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()",
@@ -37,7 +65,21 @@ const nextConfig: NextConfig = {
   images: { unoptimized: true },
   poweredByHeader: false,
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      // Uploaded bytes are inert files, not pages: they get a stricter policy
+      // than the app shell, and must never be framed.
+      {
+        source: "/api/(media|documents)/:id/file",
+        headers: [
+          {
+            key: "Content-Security-Policy",
+            value: "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox",
+          },
+          { key: "X-Frame-Options", value: "DENY" },
+        ],
+      },
+    ];
   },
 };
 

@@ -1,4 +1,5 @@
 import { one, run, uid, now, many, type Row } from "./db";
+import { redact } from "./security";
 import type { AuditEntry } from "@/lib/types";
 
 export async function logAudit(input: {
@@ -20,11 +21,48 @@ export async function logAudit(input: {
       input.action,
       input.entity,
       input.entityId ?? null,
-      JSON.stringify(input.meta ?? {}),
+      JSON.stringify(redact(input.meta ?? {})),
       input.ip ?? null,
       now(),
     ],
   );
+}
+
+/**
+ * Records an access-control decision or authentication result.
+ *
+ * Unlike `logAudit` this is allowed to fail silently: a database hiccup must
+ * never turn a blocked request into a 500, and security logging must never
+ * become a denial-of-service vector of its own.
+ */
+export async function logSecurityEvent(input: {
+  orgId?: string | null;
+  actorId?: string | null;
+  action: string;
+  outcome: "allowed" | "denied" | "failed";
+  route?: string | null;
+  ip?: string | null;
+  meta?: Record<string, unknown>;
+}): Promise<void> {
+  try {
+    await run(
+      `INSERT INTO security_events (id, org_id, actor_id, action, outcome, route, ip, meta, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        uid(),
+        input.orgId ?? null,
+        input.actorId ?? null,
+        input.action,
+        input.outcome,
+        input.route?.slice(0, 200) ?? null,
+        input.ip?.slice(0, 60) ?? null,
+        JSON.stringify(redact(input.meta ?? {})),
+        now(),
+      ],
+    );
+  } catch (error) {
+    console.error("[security] não foi possível registar o evento:", (error as Error).message);
+  }
 }
 
 export async function listAudit(orgId: string, opts: { limit?: number; entity?: string; entityId?: string } = {}) {

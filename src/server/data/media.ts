@@ -1,6 +1,7 @@
 import { many, one, run, uid, now, type Row } from "../db";
 import { ApiError } from "../http";
 import { get as getBlob, newKey, put as putBlob, remove as removeBlob } from "../blob";
+import { assertIdentifiers, expectedFamily, sniffUpload } from "../security";
 import { mapMedia } from "./properties";
 import type { PropertyMedia } from "@/lib/types";
 
@@ -34,6 +35,26 @@ const EXT: Record<string, string> = {
 };
 
 
+
+/**
+ * The browser-supplied MIME type is only a claim. Every upload is checked
+ * against its magic bytes so a file cannot be stored (and later served back)
+ * as an image while actually being something else.
+ */
+export async function assertFileSignature(file: File): Promise<void> {
+  if (file.size === 0) throw new ApiError("O ficheiro está vazio.", 422, "empty_file");
+  const head = Buffer.from(await file.slice(0, 32).arrayBuffer());
+  const expected = expectedFamily(file.type);
+  if (expected === "unknown") return; // DOC/DOCX: the OLE/ZIP containers are not sniffed here
+  const actual = sniffUpload(head);
+  if (actual !== expected) {
+    throw new ApiError(
+      "O conteúdo do ficheiro não corresponde ao formato declarado.",
+      415,
+      "content_mismatch",
+    );
+  }
+}
 
 export function validateUpload(file: File): { kind: "photo" | "floorplan" | "document" | "video"; ext: string } {
   const type = file.type;
@@ -71,6 +92,7 @@ export async function saveUpload(input: {
     if (!owns) throw new ApiError("Imóvel inexistente.", 404, "not_found");
   }
   const validation = validateUpload(file);
+  await assertFileSignature(file);
   const kind = input.kind ?? validation.kind;
   const id = uid();
   const fileName = `${id}.${validation.ext}`;
@@ -194,6 +216,7 @@ export async function updateMedia(
   if (patch.is_primary !== undefined) set.is_primary = patch.is_primary ? 1 : 0;
   set.updated_at = now();
   const keys = Object.keys(set);
+  assertIdentifiers(keys);
   await run(
     `UPDATE property_media SET ${keys.map((k) => `${k} = ?`).join(", ")} WHERE id = ? AND org_id = ?`,
     [...keys.map((k) => set[k]), id, orgId],
@@ -247,6 +270,7 @@ export async function saveDocument(input: {
   const owns = await one<Row>(`SELECT id FROM properties WHERE id = ? AND org_id = ?`, [input.propertyId, input.orgId]);
   if (!owns) throw new ApiError("Imóvel inexistente.", 404, "not_found");
   validateUpload(input.file);
+  await assertFileSignature(input.file);
   if (input.file.size > LIMITS.document)
     throw new ApiError("O documento excede o limite de 12 MB.", 413, "too_large");
   const id = uid();

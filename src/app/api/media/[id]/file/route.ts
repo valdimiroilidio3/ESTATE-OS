@@ -36,6 +36,10 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
       "content-length": String(buffer.length),
       "cache-control": isPublic ? "public, max-age=86400" : "private, no-store",
       "x-content-type-options": "nosniff",
+      // Uploaded bytes are inert documents, never a document that can execute.
+      "content-security-policy": "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox",
+      "x-frame-options": "DENY",
+      "cross-origin-resource-policy": "same-origin",
     },
   });
 }
