@@ -164,7 +164,21 @@ Alterados:
 
 ---
 
-## 7. Como verificar localmente
+## 7. Estado do deployment de produção
+
+- Projeto Vercel `estate-os` (região `cdg1`), deploy de produção `READY` a partir do commit
+  `5effd8b`, alias público <https://estate-os-ten.vercel.app>.
+- `APP_SECRET` (sensitive) e `NEXT_PUBLIC_APP_URL` definidos no projeto.
+- **`DATABASE_URL` por definir.** Sem ela a aplicação não inventa dados: `/` mostra o ecrã de
+  instalação e `/api/health` responde `503` com `database.configured: false` — verificado contra o
+  domínio público, não apenas em local.
+- Os URLs por deployment (`*.vercel.app` com hash) estão protegidos por Vercel Authentication;
+  o alias de produção é público.
+- Passo seguinte, do lado do proprietário: criar PostgreSQL (Neon/Supabase/Vercel Postgres),
+  definir `DATABASE_URL` no projeto, voltar a publicar e abrir `/signup` — o esquema é criado no
+  primeiro pedido.
+
+## 8. Como verificar localmente
 
 ```bash
 npm ci
